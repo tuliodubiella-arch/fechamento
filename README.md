@@ -11,6 +11,8 @@ Painel claro e instalável para a execução mensal das contas por empresa. A in
 5. Em **Authentication → URL Configuration**, permita `https://tuliodubiella-arch.github.io/fechamento/` como redirect URL. Mantenha também `https://tuliodubiella-arch.github.io/painel-rotinas-grupo-cavalca/fechamento/` durante a transição. Em **Sign In / Providers**, desative cadastros públicos; novos usuários entram por convite. Configure o GitHub Pages com origem **GitHub Actions**; o fluxo em `.github/workflows/pages.yml` publica a branch `main`.
 6. Teste convite, primeiro acesso, PLAY/PAUSE/STOP, sincronização em dois usuários, modo offline e fechamento completo antes de substituir o site atual.
 
+Para a versão `2026.09.25`, aplique também `supabase/migrations/20260925_admin_corrections_versions.sql` no mesmo projeto antes de publicar os arquivos atualizados do site. A migração adiciona a correção administrativa auditável e o diário de versões; não altera os apontamentos já existentes.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
@@ -25,4 +27,6 @@ O site atual não é alterado por esta implantação. Na migração, os apontame
 - Em **Cadastros**, o administrador pode reenviar o convite apenas enquanto ele estiver pendente. O reenvio usa a conta existente e cria um novo link; quem já confirmou o e-mail deve usar **Esqueci minha senha** se não conseguir entrar.
 - A primeira entrada em cada aparelho precisa de internet. Depois disso, a interface e os dados já carregados funcionam offline; alterações ficam em fila até a conexão voltar. Não limpe os dados do navegador enquanto houver registros pendentes.
 - Os horários de execução e recebimento são mostrados em Brasília/DF. O servidor mantém os instantes em UTC.
+- Em **Execução**, somente o administrador vê **Corrigir registros** nas rotinas com apontamentos. A ação exige conexão, motivo e confirmação; retira todos os eventos daquela rotina no mês selecionado dos tempos e indicadores, sem apagar a trilha de auditoria. Dispositivos com registros offline pendentes devem sincronizar antes de uma correção.
+- Em **Versões**, somente o administrador consulta a trilha de correções e registra manutenções e atualizações do portal.
 - Os dias úteis excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi de 2026 e feriados adicionais cadastrados no painel. Confirme feriados locais de anos futuros no cadastro.

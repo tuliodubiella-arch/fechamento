@@ -8,11 +8,12 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
+const APP_VERSION = "2026.09.25";
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [],
-  states: [], holidays: [], history: [], tab: "Painel", month: "2026-09", query: "",
+  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilter: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   invitePendingIds: [], inviteStatus: "idle",
@@ -74,7 +75,7 @@ const cacheKey = () => `fc_cache_${state.session?.user?.id || "anonymous"}`;
 const queueKey = () => `fc_queue_${state.session?.user?.id || "anonymous"}`;
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "states", "holidays", "history"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "states", "holidays", "history", "releaseNotes", "corrections"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -141,6 +142,12 @@ async function loadData() {
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
+    if (state.member?.is_admin) {
+      try {
+        [state.releaseNotes, state.corrections] = await Promise.all([allRows("fc_release_notes"), allRows("fc_activity_corrections")]);
+        state.adminDataError = "";
+      } catch (error) { state.adminDataError = `Os registros administrativos ainda não estão disponíveis: ${error.message || error}`; }
+    } else { state.releaseNotes = []; state.corrections = []; state.adminDataError = ""; }
     state.error = state.member ? "" : "Seu acesso ao fechamento ainda não foi liberado pelo administrador.";
     state.ready = true; saveCache(); render();
   } catch (error) {
@@ -228,7 +235,7 @@ function renderExecution() {
       <td>${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
       <td>${badge(statusOf(task))}</td><td class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td>${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td>${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
-      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
+      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button>${state.member?.is_admin && activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Corrigir registros</button>` : ""}</div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
 function renderGoals() {
@@ -336,6 +343,16 @@ function renderRegistry() {
     <h3 class="section-title" style="margin-top:22px">${state.tasks.filter((item) => item.active).length} rotinas cadastradas</h3><div class="list">${state.tasks.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.account)}</strong><small>${esc(companyName(item.company_id))} · ${esc(memberName(ownerFor(item.id)?.responsible_id, ownerFor(item.id)?.responsible_legacy_name))}</small></div></div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Feriados adicionais</h2></div><div class="panel-body"><p class="muted">Use para feriados estaduais, municipais ou dias sem expediente confirmados pelo setor.</p><form id="holiday-form" class="form-grid"><label class="field"><span>Data</span><input class="input" type="date" name="date" required></label><label class="field"><span>Descrição</span><input class="input" name="name" required></label><button class="btn primary" type="submit">Adicionar feriado</button></form><div class="list" style="margin-top:20px">${state.holidays.sort((a, b) => a.date.localeCompare(b.date)).map((item) => `<div class="list-row"><span>${dateBR(item.date)} · ${esc(item.name)}</span></div>`).join("")}</div></div></section></div>`;
 }
+function renderVersions() {
+  if (!state.member?.is_admin) return '<div class="notice warn">Esta área é exclusiva do administrador.</div>';
+  const notes = [...state.releaseNotes].sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)));
+  const corrections = [...state.corrections].sort((a, b) => String(b.corrected_at).localeCompare(String(a.corrected_at)));
+  return `<div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Versões e atualizações</h2><p>Versão instalada: ${esc(APP_VERSION)}</p></div></div><div class="panel-body">
+    ${state.adminDataError ? `<div class="notice warn">${esc(state.adminDataError)}</div>` : ""}
+    <form id="release-form" class="form-grid"><label class="field"><span>Versão</span><input class="input" name="version" value="${esc(APP_VERSION)}" maxlength="40" required></label><label class="field"><span>Título da atualização</span><input class="input" name="title" maxlength="160" required></label><label class="field wide"><span>Descrição das mudanças / manutenção</span><textarea class="input" name="details" rows="5" maxlength="4000" required></textarea></label><button class="btn primary" type="submit" ${state.adminDataError ? "disabled" : ""}>Registrar atualização</button></form>
+    <h3 class="section-title" style="margin-top:24px">Histórico de versões</h3><div class="update-list">${notes.length ? notes.map((note) => `<article class="update-entry"><div class="update-heading"><strong>${esc(note.version)} · ${esc(note.title)}</strong><small>${brasilia(note.published_at)}</small></div><p>${esc(note.details).replace(/\n/g, "<br>")}</p><small>Registrado por ${esc(memberName(note.created_by, "Sistema"))}</small></article>`).join("") : '<div class="empty">Nenhuma atualização registrada.</div>'}</div></div></section>
+    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Trilha administrativa dos registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); return `<article class="update-entry"><div class="update-heading"><strong>${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${item.events_affected} registro(s) retirado(s) · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
+}
 function render() {
   if (!state.session || state.needsPassword) return renderAuth();
   if (!state.ready) { $("#app").innerHTML = '<div class="loading">Carregando dados protegidos…</div>'; return; }
@@ -343,13 +360,13 @@ function render() {
     $("#app").innerHTML = `<div class="auth-screen"><div class="auth-box"><h1>Acesso pendente</h1><p>${esc(state.error || "Peça ao administrador para liberar seu e-mail.")}</p><button class="btn" data-action="logout">Sair</button></div></div>`;
     return;
   }
-  const content = state.tab === "Painel" ? renderPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : renderRegistry();
+  const content = state.tab === "Painel" ? renderPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Versões" ? renderVersions() : renderRegistry();
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto">${monthOptions()}</select>
     <span class="status-pill ${state.online ? "" : "offline"}">${state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
-    <nav class="tabs" aria-label="Seções">${tabNames.map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
+    <nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
 }
 function changeLocal(table, row, keys) {
@@ -389,6 +406,25 @@ function act(taskId, action) {
   goal.delivery_at = companyTasks.every((item) => state.states.find((entry) => entry.task_id === item.id && entry.competence === state.month)?.status === "Finalizado")
     ? companyTasks.map((item) => state.states.find((entry) => entry.task_id === item.id && entry.competence === state.month)?.finished_at).filter(Boolean).sort().at(-1) : null;
   enqueue({ kind: "rpc", name: "fc_apply_activity", args: { p_event_id: uid(), p_task_id: taskId, p_competence: state.month, p_action: action, p_occurred_at: now } });
+}
+async function resetActivity(taskId, button) {
+  if (!state.member?.is_admin || isHistorical()) return;
+  if (!state.online || state.queue.length) return toast("Conecte-se e sincronize os registros pendentes antes de corrigir apontamentos.");
+  const task = state.tasks.find((item) => item.id === taskId);
+  const activity = taskState(taskId);
+  if (!task || !activity || (activity.status === "Não iniciado" && !activity.total_seconds && !activity.first_started_at)) return;
+  const month = state.month;
+  const reason = prompt(`Correção administrativa · ${task.account} · ${companyName(task.company_id)} · ${monthName(month)}\n\nTodos os registros PLAY/PAUSE/STOP desta rotina neste mês serão retirados do tempo e dos indicadores. Informe o motivo:`);
+  if (reason === null) return;
+  if (reason.trim().length < 8) return toast("Descreva o motivo da correção com pelo menos 8 caracteres.");
+  if (!confirm(`Confirmar a retirada de TODOS os apontamentos de ${task.account} em ${monthName(month)}? O tempo, início e fim voltarão a zero. A correção ficará registrada para auditoria.`)) return;
+  button.disabled = true; button.textContent = "Corrigindo…";
+  try {
+    const { error } = await client.rpc("fc_reset_activity", { p_task_id: taskId, p_competence: month, p_reason: reason.trim() });
+    if (error) throw error;
+    await loadData();
+    toast("Apontamentos retirados. Os indicadores e a data de entrega foram atualizados.");
+  } catch (error) { button.disabled = false; button.textContent = "Corrigir registros"; toast(`Correção não aplicada: ${error.message || error}`); }
 }
 async function inviteRequest(body) {
   const { data, error } = await client.functions.invoke("fc-invite-member", { body });
@@ -430,7 +466,7 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form"].includes(form.id)) return;
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form"].includes(form.id)) return;
   event.preventDefault();
   try {
     if (form.id === "auth-form") {
@@ -468,6 +504,16 @@ document.addEventListener("submit", async (event) => {
       const goal = state.targets.find((item) => item.company_id === company_id && item.competence === state.month);
       if (goal?.delivery_at) saveGoal(company_id, { delivery_at: null });
       form.reset(); toast("Rotina cadastrada."); render();
+    } else if (form.id === "release-form") {
+      if (!state.member?.is_admin) throw new Error("Somente o administrador pode registrar versões.");
+      if (!state.online) throw new Error("Conecte-se à internet para registrar uma atualização.");
+      const version = field(form, "version").value.trim();
+      const title = field(form, "title").value.trim();
+      const details = field(form, "details").value.trim();
+      if (!version || title.length < 3 || details.length < 10) throw new Error("Informe versão, título e uma descrição de pelo menos 10 caracteres.");
+      const { error } = await client.from("fc_release_notes").insert({ version, title, details, created_by: state.member.id });
+      if (error) throw error;
+      toast("Atualização registrada."); await loadData();
     } else if (form.id === "holiday-form") {
       const row = { date: field(form, "date").value, name: field(form, "name").value.trim(), created_by: state.member.id };
       if (!row.date || !row.name) throw new Error("Informe data e descrição.");
@@ -509,10 +555,13 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
   if (action === "tab") {
-    state.tab = button.dataset.tab; render();
+    state.tab = button.dataset.tab;
+    if (state.tab === "Versões" && !state.member?.is_admin) state.tab = "Painel";
+    render();
     if (state.tab === "Cadastros") void loadInviteStatuses();
   }
   else if (action === "activity") act(id, button.dataset.kind);
+  else if (action === "reset-activity") await resetActivity(id, button);
   else if (action === "choose-month") { state.month = button.dataset.month; state.tab = "Execução"; render(); }
   else if (action === "resend-invite") {
     if (!state.online) return toast("O reenvio exige conexão com a internet.");
