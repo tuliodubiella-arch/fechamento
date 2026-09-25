@@ -1,0 +1,5 @@
+.private/
+*.seed.sql
+.env
+.env.*
+node_modules/

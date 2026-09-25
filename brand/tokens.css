@@ -1,0 +1,19 @@
+:root {
+  color-scheme: light;
+  --cavalca-orange: #f7ae14;
+  --cavalca-orange-hover: #e69e08;
+  --cavalca-orange-text: #765000;
+  --cavalca-gray: #504f53;
+  --cavalca-gray-deep: #39373a;
+  --cavalca-gray-light: #e3e5e6;
+  --cavalca-white: #ffffff;
+  --cavalca-background: #f8f8f7;
+  --cavalca-font: "Raleway", Arial, sans-serif;
+  --cavalca-content-width: 1440px;
+  --cavalca-radius: 12px;
+  --cavalca-space-1: 8px;
+  --cavalca-space-2: 16px;
+  --cavalca-space-3: 24px;
+  --cavalca-space-4: 32px;
+  --cavalca-space-5: 48px;
+}

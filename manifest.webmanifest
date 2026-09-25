@@ -1,0 +1,14 @@
+{
+  "name": "Fechamento Contábil · Grupo Cavalca",
+  "short_name": "Fechamento",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f8f7",
+  "theme_color": "#39373a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ],
+  "description": "Execução e acompanhamento do fechamento contábil"
+}

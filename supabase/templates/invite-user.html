@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Convite para o Portal de Fechamento Contábil</title>
+</head>
+<body style="margin:0;padding:32px 12px;background:#f8f8f7;color:#39373a;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e3e5e6;border-radius:12px;">
+    <tr>
+      <td style="padding:28px 32px;background:#39373a;border-radius:12px 12px 0 0;color:#ffffff;">
+        <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#f7ae14;font-weight:bold;">Grupo Cavalca</div>
+        <div style="padding-top:10px;font-size:24px;line-height:1.25;font-weight:bold;">Portal de Fechamento Contábil</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:32px;font-size:16px;line-height:1.6;">
+        <p style="margin:0 0 18px;">Olá,</p>
+        <p style="margin:0 0 18px;">Você foi convidado(a) a se cadastrar no novo Portal de Acompanhamento do Fechamento Contábil do Grupo Cavalca.</p>
+        <p style="margin:0 0 26px;">No portal, os responsáveis acompanham as rotinas de fechamento, registram o andamento das conciliações e consultam as metas de cada empresa.</p>
+        <p style="margin:0 0 26px;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 22px;border-radius:8px;background:#f7ae14;color:#39373a;text-decoration:none;font-weight:bold;">Aceitar convite e definir senha</a>
+        </p>
+        <p style="margin:0 0 18px;font-size:14px;">Se o botão não abrir, copie e cole este endereço no navegador:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#765000;word-break:break-all;">{{ .ConfirmationURL }}</a>
+        </p>
+        <p style="margin:0;color:#68676a;font-size:14px;">Se você não esperava este convite, pode ignorar esta mensagem. Não compartilhe o link nem sua senha.</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:18px 32px;border-top:1px solid #e3e5e6;color:#68676a;font-size:13px;">Grupo Cavalca · Fechamento Contábil</td>
+    </tr>
+  </table>
+</body>
+</html>
