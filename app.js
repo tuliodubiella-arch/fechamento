@@ -15,6 +15,7 @@ const state = {
   states: [], holidays: [], history: [], tab: "Painel", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilter: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
+  invitePendingIds: [], inviteStatus: "idle",
   historyLoaded: false,
 };
 let flushing = false;
@@ -253,7 +254,12 @@ function renderRegistry() {
   const legacyOwners = [...new Set(state.tasks.filter((item) => item.active && !item.responsible_id && item.responsible_legacy_name).map((item) => item.responsible_legacy_name))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   return `<div class="two-col"><section class="panel"><div class="panel-head"><h2>Responsáveis e acessos</h2></div><div class="panel-body">
     ${state.member?.is_admin ? `<form id="invite-form" class="form-grid"><label class="field"><span>Nome</span><input class="input" name="name" required></label><label class="field"><span>E-mail</span><input class="input" type="email" name="email" required></label><button class="btn primary" type="submit">Convidar responsável</button></form>` : '<p class="muted">Somente o administrador cadastra novos acessos.</p>'}
-    <h3 class="section-title" style="margin-top:22px">Cadastrados com acesso</h3><div class="list">${state.members.map((person) => `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${person.is_admin ? "· administrador" : ""}</small></div>${state.member?.is_admin ? `<button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>` : ""}</div>`).join("")}</div>
+    <h3 class="section-title" style="margin-top:22px">Cadastrados com acesso</h3><div class="list">${state.members.map((person) => {
+      const pending = state.invitePendingIds.includes(person.id);
+      const accessStatus = person.is_admin ? "· administrador" : state.member?.is_admin && state.inviteStatus === "ready"
+        ? pending ? "· convite pendente" : "· convite aceito ou acesso existente" : "";
+      return `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${accessStatus}</small></div>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>${pending ? `<button class="btn compact" data-action="resend-invite" data-id="${esc(person.id)}" aria-label="Reenviar convite para ${esc(person.name)}">Reenviar convite</button>` : ""}</div>` : ""}</div>`;
+    }).join("")}</div>
     <h3 class="section-title" style="margin-top:22px">Pré-cadastrados sem acesso</h3><p class="muted">Ao convidar com o mesmo nome, as rotinas são vinculadas à conta.</p><div class="list">${legacyOwners.map((name) => `<div class="list-row"><input class="input" data-legacy-name="${esc(name)}" value="${esc(name)}" ${state.member?.is_admin ? "" : "disabled"}>${state.member?.is_admin ? `<button class="btn compact" data-action="legacy-name" data-old="${esc(name)}">Salvar</button>` : ""}</div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Empresas / CNPJs</h2></div><div class="panel-body"><form id="company-form" class="form-grid"><label class="field wide"><span>Razão social</span><input class="input" name="name" required></label><label class="field"><span>CNPJ</span><input class="input" name="cnpj" placeholder="Numérico ou alfanumérico" required></label><label class="field"><span>Prioridade inicial</span><select class="select" name="category"><option>DEMAIS</option><option>HOLDING</option></select></label><button class="btn primary" type="submit">Incluir empresa</button></form>
     <h3 class="section-title" style="margin-top:22px">Cadastradas</h3><div class="list">${state.companies.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.name)}</strong><small>${esc(item.cnpj || "CNPJ não informado")} · ${esc(item.category)}</small></div></div>`).join("")}</div></div></section>
@@ -315,22 +321,43 @@ function act(taskId, action) {
     ? companyTasks.map((item) => state.states.find((entry) => entry.task_id === item.id && entry.competence === state.month)?.finished_at).filter(Boolean).sort().at(-1) : null;
   enqueue({ kind: "rpc", name: "fc_apply_activity", args: { p_event_id: uid(), p_task_id: taskId, p_competence: state.month, p_action: action, p_occurred_at: now } });
 }
-async function inviteMember(form) {
-  if (!state.online) return toast("Convites exigem conexão com a internet.");
-  const email = field(form, "email").value.trim().toLowerCase();
-  const name = field(form, "name").value.trim();
-  if (!email || name.length < 2) return toast("Informe nome e e-mail válidos.");
-  const { data, error } = await client.functions.invoke("fc-invite-member", { body: { email, name } });
+async function inviteRequest(body) {
+  const { data, error } = await client.functions.invoke("fc-invite-member", { body });
   if (error || !data?.ok) {
     let detail = data?.error;
     if (!detail && error?.context?.json) {
       try { detail = (await error.context.json())?.error; } catch { /* Resposta sem JSON. */ }
     }
-    return toast(`Convite não enviado: ${detail || error?.message || "função indisponível"}`);
+    throw new Error(detail || error?.message || "Função de convites indisponível.");
   }
+  return data;
+}
+async function loadInviteStatuses() {
+  if (!state.member?.is_admin || !state.online) return;
+  state.inviteStatus = "loading";
+  try {
+    const data = await inviteRequest({ action: "status" });
+    state.invitePendingIds = data.pendingIds || [];
+    state.inviteStatus = "ready";
+  } catch (error) {
+    state.inviteStatus = "error";
+    toast(`Não foi possível consultar os convites: ${error.message}`);
+  }
+  if (state.tab === "Cadastros") render();
+}
+async function inviteMember(form) {
+  if (!state.online) return toast("Convites exigem conexão com a internet.");
+  const email = field(form, "email").value.trim().toLowerCase();
+  const name = field(form, "name").value.trim();
+  if (!email || name.length < 2) return toast("Informe nome e e-mail válidos.");
+  let data;
+  try { data = await inviteRequest({ email, name }); }
+  catch (error) { return toast(`Convite não enviado: ${error.message}`); }
   form.reset(); toast(data.existingUser
     ? "Acesso liberado. A pessoa pode entrar com a senha que já usa neste Supabase."
-    : "Convite enviado. O responsável definirá a senha no primeiro acesso."); await loadData();
+    : "Convite enviado. O responsável definirá a senha no primeiro acesso.");
+  await loadData();
+  if (state.tab === "Cadastros") void loadInviteStatuses();
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
@@ -409,9 +436,26 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
-  if (action === "tab") { state.tab = button.dataset.tab; render(); }
+  if (action === "tab") {
+    state.tab = button.dataset.tab; render();
+    if (state.tab === "Cadastros") void loadInviteStatuses();
+  }
   else if (action === "activity") act(id, button.dataset.kind);
   else if (action === "choose-month") { state.month = button.dataset.month; state.tab = "Execução"; render(); }
+  else if (action === "resend-invite") {
+    if (!state.online) return toast("O reenvio exige conexão com a internet.");
+    const person = state.members.find((item) => item.id === id);
+    if (!state.member?.is_admin || !person || !state.invitePendingIds.includes(id)) return;
+    button.disabled = true; button.textContent = "Enviando…";
+    try {
+      await inviteRequest({ action: "resend", memberId: id });
+      toast(`Convite reenviado para ${person.name}.`);
+      await loadInviteStatuses();
+    } catch (error) {
+      toast(`Convite não reenviado: ${error.message}`);
+      button.disabled = false; button.textContent = "Reenviar convite";
+    }
+  }
   else if (action === "member-name") {
     const member = state.members.find((item) => item.id === id);
     const name = document.querySelector(`[data-member-name="${CSS.escape(id)}"]`)?.value.trim();
