@@ -80,17 +80,22 @@ Deno.serve(async (request) => {
 
   let userId: string | undefined;
   let existingUser = false;
+  let pendingExistingUser = false;
   for (let page = 1; page <= 50; page++) {
     const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) return response({ error: "Não foi possível conferir os usuários existentes" }, 500);
     const match = data.users.find((user) => user.email?.toLowerCase() === email);
-    if (match) { userId = match.id; existingUser = true; break; }
+    if (match) { userId = match.id; existingUser = true; pendingExistingUser = Boolean(match.invited_at && !match.email_confirmed_at && !match.confirmed_at && !match.last_sign_in_at); break; }
     if (data.users.length < 1000) break;
   }
   if (!userId) {
     const { data: invite, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo, data: { full_name: name } });
     if (inviteError || !invite.user) return response({ error: inviteError?.message || "Convite não enviado" }, 400);
     userId = invite.user.id;
+  } else if (pendingExistingUser) {
+    const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo, data: { full_name: name } });
+    if (inviteError) return response({ error: inviteError.message || "Convite não reenviado" }, 400);
+    existingUser = false;
   }
   const { error: insertError } = await adminClient.from("fc_members").insert({ id: userId, email, name, legacy_name: name, active: true, is_admin: false });
   if (insertError) return response({ error: "O perfil não foi criado. Verifique o cadastro no Supabase." }, 500);
