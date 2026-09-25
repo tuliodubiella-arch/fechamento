@@ -96,5 +96,7 @@ Deno.serve(async (request) => {
   if (insertError) return response({ error: "O perfil não foi criado. Verifique o cadastro no Supabase." }, 500);
   await adminClient.from("fc_tasks").update({ responsible_id: userId, responsible_legacy_name: null })
     .ilike("responsible_legacy_name", name);
+  await adminClient.from("fc_month_owners").update({ responsible_id: userId, responsible_legacy_name: null })
+    .ilike("responsible_legacy_name", name);
   return response({ ok: true, existingUser });
 });

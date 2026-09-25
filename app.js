@@ -11,7 +11,7 @@ const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
-  session: null, member: null, members: [], companies: [], tasks: [], targets: [], receipts: [],
+  session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [],
   states: [], holidays: [], history: [], tab: "Painel", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilter: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
@@ -70,21 +70,11 @@ function plannedDate(month, businessDay) {
   }
   return null;
 }
-function validCnpj(value) {
-  const characters = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!/^[A-Z0-9]{12}\d{2}$/.test(characters) || /^(\d)\1+$/.test(characters)) return false;
-  for (const length of [12, 13]) {
-    const weights = length === 12 ? [5,4,3,2,9,8,7,6,5,4,3,2] : [6,5,4,3,2,9,8,7,6,5,4,3,2];
-    const sum = weights.reduce((total, weight, index) => total + (characters.charCodeAt(index) - 48) * weight, 0);
-    if ((sum % 11 < 2 ? 0 : 11 - sum % 11) !== Number(characters[length])) return false;
-  }
-  return true;
-}
 const cacheKey = () => `fc_cache_${state.session?.user?.id || "anonymous"}`;
 const queueKey = () => `fc_queue_${state.session?.user?.id || "anonymous"}`;
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "targets", "receipts", "states", "holidays", "history"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "states", "holidays", "history"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -138,12 +128,16 @@ async function allRows(table) {
 async function loadData() {
   if (!state.session || !state.online) { render(); return; }
   try {
-    const [members, companies, tasks, targets, receipts, activityStates, holidays, history] = await Promise.all([
-      allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_targets"),
+    if (!isHistorical()) {
+      const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: state.month });
+      if (assignmentError) throw assignmentError;
+    }
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history] = await Promise.all([
+      allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
     ]);
-    state.members = members; state.companies = companies; state.tasks = tasks; state.targets = targets;
+    state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
@@ -170,9 +164,14 @@ function receiptFor(companyId, department) {
   return state.receipts.find((item) => item.company_id === companyId && item.competence === state.month && item.department === department);
 }
 function isHistorical() { return state.month < legacyCutoff; }
+function ownerFor(taskId, competence = state.month) { return state.owners.find((item) => item.task_id === taskId && item.competence === competence); }
 function monthlyTasks() {
   if (isHistorical()) return state.history.filter((item) => item.competence === state.month).map((item) => ({ ...item, company_name: item.company, owner_name: item.owner_name, historic: true }));
-  return state.tasks.filter((item) => item.active).map((item) => ({ ...item, company_name: companyName(item.company_id), owner_name: memberName(item.responsible_id, item.responsible_legacy_name) }));
+  return state.tasks.filter((item) => item.active && (item.created_competence || legacyCutoff) <= state.month).map((item) => {
+    const owner = ownerFor(item.id);
+    return { ...item, responsible_id: owner?.responsible_id || null, responsible_legacy_name: owner?.responsible_legacy_name || null,
+      company_name: companyName(item.company_id), owner_name: memberName(owner?.responsible_id, owner?.responsible_legacy_name) };
+  });
 }
 function statusOf(task) { return task.historic ? task.status || "Não iniciado" : taskState(task.id)?.status || "Não iniciado"; }
 function badge(status) {
@@ -198,12 +197,18 @@ function renderPanel() {
   const seconds = isHistorical() ? 0 : state.states.filter((item) => item.competence === state.month).reduce((sum, item) => sum + currentSeconds(item), 0);
   const received = state.receipts.filter((item) => item.competence === state.month && item.status === "Recebido").length;
   const slowest = isHistorical() ? [] : items.map((item) => ({ ...item, seconds: currentSeconds(taskState(item.id)) })).filter((item) => item.seconds > 0).sort((a, b) => b.seconds - a.seconds).slice(0, 8);
+  const activeCompanies = state.companies.filter((item) => item.active);
+  const companyStats = activeCompanies.map((company) => { const rows = items.filter((item) => item.company_id === company.id); return { name: company.name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).filter((item) => item.total);
+  const personStats = state.members.filter((item) => item.active).map((person) => { const rows = items.filter((item) => item.responsible_id === person.id); return { name: person.name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).filter((item) => item.total).sort((a, b) => b.seconds - a.seconds || b.done - a.done);
+  const groupStats = [...new Set(items.map((item) => item.group_name || "OUTROS"))].map((name) => { const rows = items.filter((item) => (item.group_name || "OUTROS") === name); return { name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).sort((a, b) => b.seconds - a.seconds);
+  const statRows = (rows, mode) => rows.length ? rows.map((item) => `<div class="chart-row"><div class="chart-label"><span>${esc(item.name)}</span><strong>${mode === "time" ? duration(item.seconds) : `${item.done}/${item.total}`}</strong></div><div class="chart-track"><div class="chart-fill ${mode === "time" ? "time" : ""}" style="width:${mode === "time" ? Math.max(item.seconds ? 2 : 0, Math.round(100 * item.seconds / Math.max(1, ...rows.map((row) => row.seconds)))) : Math.round(100 * item.done / item.total)}%"></div></div><small>${mode === "time" ? `${item.done} de ${item.total} concluídas` : `${Math.round(100 * item.done / item.total)}% concluído · ${duration(item.seconds)}`}</small></div>`).join("") : '<div class="empty">Ainda não há dados para este indicador.</div>';
   return `<div class="grid cards"><div class="card"><span>Atividades</span><strong>${items.length}</strong><small>${completed} finalizadas</small></div>
     <div class="card"><span>Em andamento</span><strong>${running}</strong><small>Rotinas em execução</small></div>
     <div class="card"><span>Tempo registrado</span><strong class="live-total">${isHistorical() ? "—" : duration(seconds)}</strong><small>Soma das conciliações</small></div>
-    <div class="card"><span>Documentos recebidos</span><strong>${received}</strong><small>Financeiro, RH, Estoque e Fiscal</small></div></div>
-    <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Progresso das empresas</h2><p>Atividades finalizadas no mês</p></div></div><div class="panel-body">
-    ${state.companies.filter((item) => item.active).map((company) => { const companyTasks = items.filter((item) => item.company_id === company.id); const done = companyTasks.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length; return `<div class="slow-row"><span>${esc(company.name)}</span><strong>${done}/${companyTasks.length}</strong></div>`; }).join("")}</div></section>
+    <div class="card"><span>Progresso geral</span><strong>${items.length ? Math.round(100 * completed / items.length) : 0}%</strong><small>${companyStats.filter((item) => item.done === item.total).length} empresas encerradas · ${received} documentos recebidos</small></div></div>
+    <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Progresso por empresa</h2><p>Itens finalizados e tempo de trabalho</p></div></div><div class="panel-body chart-list">${statRows(companyStats, "progress")}</div></section>
+    <section class="panel"><div class="panel-head"><div><h2>Indicadores por pessoa</h2><p>Responsabilidades e horas registradas</p></div></div><div class="panel-body chart-list">${statRows(personStats, "progress")}</div></section></div>
+    <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa</h2><p>Grupos de contas e rotinas</p></div></div><div class="panel-body chart-list">${statRows(groupStats, "time")}</div></section>
     <section class="panel"><div class="panel-head"><div><h2>Conciliações mais demoradas</h2><p>Tempo cronometrado em PLAY/PAUSE/STOP</p></div></div><div class="panel-body slow-list">
     ${slowest.length ? slowest.map((item) => `<div class="slow-row"><span title="${esc(item.company_name)}">${esc(item.account)}<small>${esc(item.company_name)}</small></span><strong>${duration(item.seconds)}</strong></div>`).join("") : '<div class="empty">Os tempos aparecerão após o primeiro PLAY.</div>'}</div></section></div>`;
 }
@@ -227,19 +232,83 @@ function renderExecution() {
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
 function renderGoals() {
-  const companies = state.companies.filter((item) => isHistorical()
-    ? state.targets.some((goal) => goal.company_id === item.id && goal.competence === state.month) : item.active)
-    .map((company) => ({ ...company, goal: targetFor(company) }))
-    .sort((a, b) => a.goal.category === b.goal.category ? a.goal.sort_order - b.goal.sort_order : a.goal.category === "HOLDING" ? -1 : 1);
-  return `<section class="panel"><div class="panel-head"><div><h2>Ordem mensal de fechamento</h2><p>HOLDING primeiro. O dia útil programa a data no mês seguinte.</p></div></div>
+  const companies = orderedGoals();
+  const printRows = goalExportRows();
+  return `<section class="panel"><div class="panel-head"><div><h2>Ordem mensal de fechamento</h2><p>HOLDING primeiro. O dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
     <div class="table-wrap"><table style="min-width:1500px"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${item}</th>`).join("")}<th>Mover</th></tr></thead>
-    <tbody>${companies.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${index + 1}</strong></td><td><strong>${esc(company.name)}</strong><small>${esc(company.cnpj || "CNPJ não informado")}</small></td>
+    <tbody>${companies.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${index + 1}</strong></td><td><strong>${esc(company.name)}</strong></td>
       <td><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
       <td><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""} style="width:75px"></td>
       <td><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td>${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
       ${departments.map((department) => { const receipt = receiptFor(company.id, department); return `<td><select class="select" data-action="receipt" data-id="${esc(company.id)}" data-department="${department}" ${isHistorical() ? "disabled" : ""}><option value="" ${!receipt || receipt.status === "Pendente" ? "selected" : ""}>Pendente</option><option ${receipt?.status === "Recebido" ? "selected" : ""}>Recebido</option><option ${receipt?.status === "N/A" ? "selected" : ""}>N/A</option></select><small>${receipt?.received_at ? brasilia(receipt.received_at) : receipt?.status === "N/A" ? "Não aplicável" : "Aguardando"}</small></td>`; }).join("")}
       <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || companies[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === companies.length - 1 || companies[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>
-    <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>`;
+    <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>
+    <section class="print-sheet"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1><p>Programação e recebimento dos setores · Horário de Brasília/DF</p></div></div><table><thead><tr>${goalHeaders.map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
+}
+const goalHeaders = ["Ordem", "Empresa", "Prioridade", "Dia útil", "Previsão", "Data de entrega", "Financeiro", "RH", "Estoque", "Fiscal"];
+function orderedGoals() {
+  return state.companies.filter((item) => isHistorical()
+    ? state.targets.some((goal) => goal.company_id === item.id && goal.competence === state.month) : item.active)
+    .map((company) => ({ ...company, goal: targetFor(company) }))
+    .sort((a, b) => a.goal.category === b.goal.category ? a.goal.sort_order - b.goal.sort_order : a.goal.category === "HOLDING" ? -1 : 1);
+}
+function goalExportRows() {
+  return orderedGoals().map((company, index) => {
+    const goal = company.goal;
+    return [index + 1, company.name, goal.category, goal.business_day || "", dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day)),
+      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.status === "Recebido" ? `Recebido · ${brasilia(receipt.received_at)}` : receipt?.status || "Pendente"; })];
+  });
+}
+function crc32(bytes) {
+  let crc = -1;
+  for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); }
+  return (crc ^ -1) >>> 0;
+}
+function zipFiles(files) {
+  const encoder = new TextEncoder(), parts = [], directory = [];
+  let offset = 0;
+  for (const [name, body] of Object.entries(files)) {
+    const path = encoder.encode(name), data = encoder.encode(body), crc = crc32(data);
+    const local = new Uint8Array(30 + path.length), view = new DataView(local.buffer);
+    view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0x0800, true);
+    view.setUint32(14, crc, true); view.setUint32(18, data.length, true); view.setUint32(22, data.length, true);
+    view.setUint16(26, path.length, true); local.set(path, 30);
+    parts.push(local, data); directory.push({ path, crc, size: data.length, offset }); offset += local.length + data.length;
+  }
+  const centralStart = offset;
+  for (const entry of directory) {
+    const header = new Uint8Array(46 + entry.path.length), view = new DataView(header.buffer);
+    view.setUint32(0, 0x02014b50, true); view.setUint16(4, 20, true); view.setUint16(6, 20, true);
+    view.setUint16(8, 0x0800, true); view.setUint32(16, entry.crc, true); view.setUint32(20, entry.size, true);
+    view.setUint32(24, entry.size, true); view.setUint16(28, entry.path.length, true); view.setUint32(42, entry.offset, true);
+    header.set(entry.path, 46); parts.push(header); offset += header.length;
+  }
+  const end = new Uint8Array(22), endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true); endView.setUint16(8, directory.length, true); endView.setUint16(10, directory.length, true);
+  endView.setUint32(12, offset - centralStart, true); endView.setUint32(16, centralStart, true); parts.push(end);
+  return new Blob(parts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function exportGoalsXlsx() {
+  const cell = (value, reference, style = 0) => typeof value === "number"
+    ? `<c r="${reference}" s="${style}"><v>${value}</v></c>`
+    : `<c r="${reference}" s="${style}" t="inlineStr"><is><t>${esc(value)}</t></is></c>`;
+  const rows = [
+    `<row r="1" ht="32">${cell(`GRUPO CAVALCA · ORDEM DE FECHAMENTO · ${monthName(state.month).toUpperCase()}`, "A1", 1)}</row>`,
+    `<row r="2" ht="25">${goalHeaders.map((value, index) => cell(value, `${String.fromCharCode(65 + index)}2`, 2)).join("")}</row>`,
+    ...goalExportRows().map((values, rowIndex) => `<row r="${rowIndex + 3}" ht="22">${values.map((value, columnIndex) => cell(value, `${String.fromCharCode(65 + columnIndex)}${rowIndex + 3}`, rowIndex % 2 ? 4 : 3)).join("")}</row>`),
+  ];
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="9" customWidth="1"/><col min="2" max="2" width="42" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="6" width="22" customWidth="1"/><col min="7" max="10" width="24" customWidth="1"/></cols><sheetData>${rows.join("")}</sheetData><mergeCells count="1"><mergeCell ref="A1:J1"/></mergeCells><autoFilter ref="A2:J${Math.max(3, goalExportRows().length + 2)}"/></worksheet>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="15"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF39373A"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF39373A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFB519"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>`;
+  const files = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ordem de fechamento" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    "xl/worksheets/sheet1.xml": sheet, "xl/styles.xml": styles,
+  };
+  const url = URL.createObjectURL(zipFiles(files)), link = document.createElement("a");
+  link.href = url; link.download = `ordem-fechamento-${state.month}.xlsx`; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 function renderHistory() {
   const months = [...new Set([...state.history.map((item) => item.competence), ...state.states.map((item) => item.competence)])].sort();
@@ -251,20 +320,20 @@ function renderHistory() {
 function renderRegistry() {
   const companyOptions = state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
-  const legacyOwners = [...new Set(state.tasks.filter((item) => item.active && !item.responsible_id && item.responsible_legacy_name).map((item) => item.responsible_legacy_name))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const legacyOwners = [...new Set([...state.tasks, ...state.owners].filter((item) => !item.responsible_id && item.responsible_legacy_name).map((item) => item.responsible_legacy_name))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   return `<div class="two-col"><section class="panel"><div class="panel-head"><h2>Responsáveis e acessos</h2></div><div class="panel-body">
     ${state.member?.is_admin ? `<form id="invite-form" class="form-grid"><label class="field"><span>Nome</span><input class="input" name="name" required></label><label class="field"><span>E-mail</span><input class="input" type="email" name="email" required></label><button class="btn primary" type="submit">Convidar responsável</button></form>` : '<p class="muted">Somente o administrador cadastra novos acessos.</p>'}
-    <h3 class="section-title" style="margin-top:22px">Cadastrados com acesso</h3><div class="list">${state.members.map((person) => {
+    <h3 class="section-title" style="margin-top:22px">Cadastrados com acesso</h3><div class="list">${state.members.filter((person) => person.active).map((person) => {
       const pending = state.invitePendingIds.includes(person.id);
       const accessStatus = person.is_admin ? "· administrador" : state.member?.is_admin && state.inviteStatus === "ready"
         ? pending ? "· convite pendente" : "· convite aceito ou acesso existente" : "";
-      return `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${accessStatus}</small></div>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>${pending ? `<button class="btn compact" data-action="resend-invite" data-id="${esc(person.id)}" aria-label="Reenviar convite para ${esc(person.name)}">Reenviar convite</button>` : ""}</div>` : ""}</div>`;
+      return `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${accessStatus}</small></div>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>${pending ? `<button class="btn compact" data-action="resend-invite" data-id="${esc(person.id)}" aria-label="Reenviar convite para ${esc(person.name)}">Reenviar convite</button>` : ""}<button class="btn compact danger" data-action="delete-member" data-id="${esc(person.id)}" ${person.id === state.member.id ? "disabled" : ""}>Excluir</button></div>` : ""}</div>`;
     }).join("")}</div>
-    <h3 class="section-title" style="margin-top:22px">Pré-cadastrados sem acesso</h3><p class="muted">Ao convidar com o mesmo nome, as rotinas são vinculadas à conta.</p><div class="list">${legacyOwners.map((name) => `<div class="list-row"><input class="input" data-legacy-name="${esc(name)}" value="${esc(name)}" ${state.member?.is_admin ? "" : "disabled"}>${state.member?.is_admin ? `<button class="btn compact" data-action="legacy-name" data-old="${esc(name)}">Salvar</button>` : ""}</div>`).join("")}</div></div></section>
-    <section class="panel"><div class="panel-head"><h2>Empresas / CNPJs</h2></div><div class="panel-body"><form id="company-form" class="form-grid"><label class="field wide"><span>Razão social</span><input class="input" name="name" required></label><label class="field"><span>CNPJ</span><input class="input" name="cnpj" placeholder="Numérico ou alfanumérico" required></label><label class="field"><span>Prioridade inicial</span><select class="select" name="category"><option>DEMAIS</option><option>HOLDING</option></select></label><button class="btn primary" type="submit">Incluir empresa</button></form>
-    <h3 class="section-title" style="margin-top:22px">Cadastradas</h3><div class="list">${state.companies.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.name)}</strong><small>${esc(item.cnpj || "CNPJ não informado")} · ${esc(item.category)}</small></div></div>`).join("")}</div></div></section>
-    <section class="panel"><div class="panel-head"><h2>Contas / rotinas</h2></div><div class="panel-body"><form id="task-form" class="form-grid"><label class="field wide"><span>Empresa</span><select class="select" name="company_id" required><option value="">Selecione</option>${companyOptions}</select></label><label class="field"><span>Conta / rotina</span><input class="input" name="account" required></label><label class="field"><span>Grupo</span><input class="input" name="group_name" value="OUTROS"></label><label class="field wide"><span>Responsável</span><select class="select" name="responsible_id"><option value="">A definir</option>${memberOptions}</select></label><button class="btn primary" type="submit">Incluir rotina</button></form>
-    <h3 class="section-title" style="margin-top:22px">${state.tasks.filter((item) => item.active).length} rotinas cadastradas</h3><div class="list">${state.tasks.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.account)}</strong><small>${esc(companyName(item.company_id))} · ${esc(memberName(item.responsible_id, item.responsible_legacy_name))}</small></div></div>`).join("")}</div></div></section>
+    <h3 class="section-title" style="margin-top:22px">Pré-cadastrados sem acesso</h3><p class="muted">Ao convidar com o mesmo nome, as rotinas são vinculadas à conta.</p><div class="list">${legacyOwners.map((name) => `<div class="list-row"><input class="input" data-legacy-name="${esc(name)}" value="${esc(name)}" ${state.member?.is_admin ? "" : "disabled"}>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="legacy-name" data-old="${esc(name)}">Salvar</button><button class="btn compact danger" data-action="delete-legacy" data-old="${esc(name)}">Excluir</button></div>` : ""}</div>`).join("")}</div></div></section>
+    <section class="panel"><div class="panel-head"><h2>Empresas</h2></div><div class="panel-body"><p class="notice warn">Um novo cadastro deverá respeitar o nome da empresa conforme o cartão de CNPJ</p><form id="company-form" class="form-grid"><label class="field wide"><span>Nome da empresa</span><input class="input" name="name" required></label><label class="field"><span>Prioridade inicial</span><select class="select" name="category"><option>DEMAIS</option><option>HOLDING</option></select></label><button class="btn primary" type="submit">Incluir empresa</button></form>
+    <h3 class="section-title" style="margin-top:22px">Cadastradas</h3><div class="list">${state.companies.filter((item) => item.active).map((item) => `<div class="list-row"><input class="input" data-company-name="${esc(item.id)}" value="${esc(item.name)}" aria-label="Nome da empresa"> <button class="btn compact" data-action="company-name" data-id="${esc(item.id)}">Salvar</button></div>`).join("")}</div></div></section>
+    <section class="panel"><div class="panel-head"><h2>Contas / rotinas</h2></div><div class="panel-body"><form id="task-form" class="form-grid"><label class="field wide"><span>Empresa</span><select class="select" name="company_id" required><option value="">Selecione</option>${companyOptions}</select></label><label class="field"><span>Conta / rotina</span><input class="input" name="account" required></label><label class="field"><span>Grupo</span><input class="input" name="group_name" value="OUTROS"></label><button class="btn primary" type="submit">Incluir rotina sem responsável</button></form>
+    <h3 class="section-title" style="margin-top:22px">${state.tasks.filter((item) => item.active).length} rotinas cadastradas</h3><div class="list">${state.tasks.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.account)}</strong><small>${esc(companyName(item.company_id))} · ${esc(memberName(ownerFor(item.id)?.responsible_id, ownerFor(item.id)?.responsible_legacy_name))}</small></div></div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Feriados adicionais</h2></div><div class="panel-body"><p class="muted">Use para feriados estaduais, municipais ou dias sem expediente confirmados pelo setor.</p><form id="holiday-form" class="form-grid"><label class="field"><span>Data</span><input class="input" type="date" name="date" required></label><label class="field"><span>Descrição</span><input class="input" name="name" required></label><button class="btn primary" type="submit">Adicionar feriado</button></form><div class="list" style="margin-top:20px">${state.holidays.sort((a, b) => a.date.localeCompare(b.date)).map((item) => `<div class="list-row"><span>${dateBR(item.date)} · ${esc(item.name)}</span></div>`).join("")}</div></div></section></div>`;
 }
 function render() {
@@ -281,7 +350,7 @@ function render() {
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     <nav class="tabs" aria-label="Seções">${tabNames.map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
-  document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = state.tasks.find((item) => item.id === element.dataset.id)?.responsible_id || ""; });
+  document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
 }
 function changeLocal(table, row, keys) {
   const array = state[table];
@@ -311,7 +380,7 @@ function act(taskId, action) {
     started_at: action === "play" ? now : null, first_started_at: previous.first_started_at || (action === "play" ? now : null),
     finished_at: action === "stop" ? now : null, updated_at: now, last_actor_id: state.member.id };
   changeLocal("states", row, ["task_id", "competence"]);
-  const companyTasks = state.tasks.filter((item) => item.company_id === task.company_id && item.active);
+  const companyTasks = state.tasks.filter((item) => item.company_id === task.company_id && item.active && (item.created_competence || legacyCutoff) <= state.month);
   let goal = state.targets.find((item) => item.company_id === task.company_id && item.competence === state.month);
   if (!goal) {
     goal = targetFor(state.companies.find((item) => item.id === task.company_id));
@@ -378,21 +447,22 @@ document.addEventListener("submit", async (event) => {
       }
     } else if (form.id === "invite-form") await inviteMember(form);
     else if (form.id === "company-form") {
-      const name = field(form, "name").value.trim(), cnpj = field(form, "cnpj").value.toUpperCase().replace(/[^A-Z0-9]/g, ""), category = field(form, "category").value;
-      if (!name || !validCnpj(cnpj)) throw new Error("Informe uma empresa e um CNPJ válido.");
-      if (state.companies.some((item) => item.cnpj === cnpj)) throw new Error("Este CNPJ já está cadastrado.");
+      const name = field(form, "name").value.trim(), category = field(form, "category").value;
+      if (name.length < 2) throw new Error("Informe o nome da empresa.");
+      if (state.companies.some((item) => item.name.trim().toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"))) throw new Error("Esta empresa já está cadastrada.");
       const id = uid();
-      const company = { id, name, source_name: name, cnpj, category, active: true };
+      const company = { id, name, source_name: name, category, active: true };
       state.companies.push(company); enqueue({ kind: "upsert", table: "fc_companies", row: company, conflict: "id" });
       const goal = { company_id: id, competence: state.month, category, sort_order: state.targets.length + 1, business_day: null, planned_date: null, delivery_at: null };
       state.targets.push(goal); enqueue({ kind: "upsert", table: "fc_targets", row: goal, conflict: "company_id,competence" });
-      const review = { id: `review-${id}`, company_id: id, account: "REVISÃO DE BALANCETE", group_name: "ENCERRAMENTO", responsible_id: null, responsible_legacy_name: null, active: true };
+      const review = { id: `review-${id}`, company_id: id, account: "REVISÃO DE BALANCETE", group_name: "ENCERRAMENTO", responsible_id: null, responsible_legacy_name: null, created_competence: state.month, active: true };
       state.tasks.push(review); enqueue({ kind: "upsert", table: "fc_tasks", row: review, conflict: "id" });
       form.reset(); toast("Empresa e revisão cadastradas."); render();
     } else if (form.id === "task-form") {
       const company_id = field(form, "company_id").value, account = field(form, "account").value.trim();
       if (!company_id || !account) throw new Error("Informe empresa e rotina.");
-      const row = { id: uid(), company_id, account, group_name: field(form, "group_name").value.trim() || "OUTROS", responsible_id: field(form, "responsible_id").value || null, responsible_legacy_name: null, active: true };
+      if (isHistorical()) throw new Error("Não é possível incluir rotinas em meses históricos.");
+      const row = { id: uid(), company_id, account, group_name: field(form, "group_name").value.trim() || "OUTROS", responsible_id: null, responsible_legacy_name: null, created_competence: state.month, active: true };
       state.tasks.push(row); enqueue({ kind: "upsert", table: "fc_tasks", row, conflict: "id" });
       const goal = state.targets.find((item) => item.company_id === company_id && item.competence === state.month);
       if (goal?.delivery_at) saveGoal(company_id, { delivery_at: null });
@@ -409,15 +479,16 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
-  if (element.id === "month") { state.month = element.value; state.query = ""; render(); return; }
+  if (element.id === "month") { state.month = element.value; state.query = ""; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   if (element.id === "status-filter") { state.statusFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
   if (action === "task-owner") {
     const task = state.tasks.find((item) => item.id === id); if (!task) return;
-    task.responsible_id = element.value || null; task.responsible_legacy_name = null;
-    enqueue({ kind: "update", table: "fc_tasks", where: { id }, values: { responsible_id: task.responsible_id, responsible_legacy_name: null } });
+    const row = { task_id: id, competence: state.month, responsible_id: element.value || null, responsible_legacy_name: null };
+    changeLocal("owners", row, ["task_id", "competence"]);
+    enqueue({ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" });
   } else if (action === "goal-category") saveGoal(id, { category: element.value });
   else if (action === "goal-day") {
     const day = element.value ? Number(element.value) : null;
@@ -456,6 +527,16 @@ document.addEventListener("click", async (event) => {
       button.disabled = false; button.textContent = "Reenviar convite";
     }
   }
+  else if (action === "delete-member") {
+    const person = state.members.find((item) => item.id === id);
+    if (!state.member?.is_admin || !person || person.id === state.member.id) return;
+    if (!state.online || state.queue.length) return toast("Sincronize os registros pendentes antes de excluir um acesso.");
+    if (!confirm(`Excluir o acesso de ${person.name}? A exclusão só será aceita se não houver registros de execução. As rotinas atribuídas ficarão sem responsável.`)) return;
+    button.disabled = true;
+    const { error } = await client.rpc("fc_remove_member", { p_member_id: id });
+    if (error) { button.disabled = false; return toast(`Responsável não excluído: ${error.message}`); }
+    toast(`Acesso de ${person.name} excluído do fechamento.`); await loadData(); void loadInviteStatuses();
+  }
   else if (action === "member-name") {
     const member = state.members.find((item) => item.id === id);
     const name = document.querySelector(`[data-member-name="${CSS.escape(id)}"]`)?.value.trim();
@@ -465,12 +546,33 @@ document.addEventListener("click", async (event) => {
     const oldName = button.dataset.old;
     const name = document.querySelector(`[data-legacy-name="${CSS.escape(oldName)}"]`)?.value.trim();
     if (!name || name.length < 2) return toast("Informe um nome válido.");
-    const tasks = state.tasks.filter((item) => !item.responsible_id && item.responsible_legacy_name === oldName);
-    for (const task of tasks) {
-      task.responsible_legacy_name = name;
-      enqueue({ kind: "update", table: "fc_tasks", where: { id: task.id }, values: { responsible_legacy_name: name } });
+    const matches = [
+      ...state.tasks.filter((item) => !item.responsible_id && item.responsible_legacy_name === oldName).map((item) => ({ item, table: "fc_tasks", where: { id: item.id } })),
+      ...state.owners.filter((item) => !item.responsible_id && item.responsible_legacy_name === oldName).map((item) => ({ item, table: "fc_month_owners", where: { task_id: item.task_id, competence: item.competence } })),
+    ];
+    for (const { item, table, where } of matches) {
+      item.responsible_legacy_name = name;
+      enqueue({ kind: "update", table, where, values: { responsible_legacy_name: name } });
     }
-    toast(`${tasks.length} rotina(s) atualizada(s).`);
+    toast(`${matches.length} vínculo(s) atualizado(s).`);
+  } else if (action === "delete-legacy") {
+    const oldName = button.dataset.old;
+    if (!state.member?.is_admin || !confirm(`Excluir o pré-cadastro de ${oldName}? As rotinas ficarão sem responsável.`)) return;
+    const matches = [
+      ...state.tasks.filter((item) => !item.responsible_id && item.responsible_legacy_name === oldName).map((item) => ({ item, table: "fc_tasks", where: { id: item.id } })),
+      ...state.owners.filter((item) => !item.responsible_id && item.responsible_legacy_name === oldName).map((item) => ({ item, table: "fc_month_owners", where: { task_id: item.task_id, competence: item.competence } })),
+    ];
+    for (const { item, table, where } of matches) {
+      item.responsible_legacy_name = null;
+      enqueue({ kind: "update", table, where, values: { responsible_legacy_name: null } });
+    }
+    toast(`Pré-cadastro de ${oldName} excluído.`);
+  } else if (action === "company-name") {
+    const company = state.companies.find((item) => item.id === id);
+    const name = document.querySelector(`[data-company-name="${CSS.escape(id)}"]`)?.value.trim();
+    if (!company || !name || name.length < 2) return toast("Informe um nome válido.");
+    if (state.companies.some((item) => item.id !== id && item.name.trim().toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"))) return toast("Esta empresa já está cadastrada.");
+    company.name = name; enqueue({ kind: "update", table: "fc_companies", where: { id }, values: { name } });
   } else if (action === "move") {
     const company = state.companies.find((item) => item.id === id); if (!company) return;
     const ordered = state.companies.filter((item) => item.active).map((item) => ({ ...item, goal: targetFor(item) })).sort((a, b) => a.goal.category === b.goal.category ? a.goal.sort_order - b.goal.sort_order : a.goal.category === "HOLDING" ? -1 : 1);
@@ -478,6 +580,10 @@ document.addEventListener("click", async (event) => {
     if (!other || other.goal.category !== ordered[index].goal.category) return;
     const previousOrder = ordered[index].goal.sort_order, nextOrder = other.goal.sort_order;
     saveGoal(id, { sort_order: nextOrder }); saveGoal(other.id, { sort_order: previousOrder });
+  } else if (action === "print-goals") {
+    window.print();
+  } else if (action === "xlsx-goals") {
+    exportGoalsXlsx();
   } else if (action === "forgot-password") {
     const email = prompt("Informe o e-mail cadastrado para receber o link de recuperação:");
     if (!email) return;
