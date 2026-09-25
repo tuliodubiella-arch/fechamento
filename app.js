@@ -150,7 +150,7 @@ async function loadData() {
 }
 function monthOptions() {
   const list = [];
-  for (let year = 2026; year <= 2027; year++) for (let month = 1; month <= 12; month++) list.push(`${year}-${String(month).padStart(2, "0")}`);
+  for (let year = 2026; year <= Math.max(2028, new Date().getFullYear() + 2); year++) for (let month = 1; month <= 12; month++) list.push(`${year}-${String(month).padStart(2, "0")}`);
   return list.map((month) => `<option value="${month}" ${month === state.month ? "selected" : ""}>${esc(monthName(month))}</option>`).join("");
 }
 function memberName(id, legacy) { return state.members.find((item) => item.id === id)?.name || legacy || "A definir"; }
@@ -447,6 +447,7 @@ document.addEventListener("submit", async (event) => {
       }
     } else if (form.id === "invite-form") await inviteMember(form);
     else if (form.id === "company-form") {
+      if (isHistorical()) throw new Error("Selecione um mês atual ou futuro para cadastrar empresas.");
       const name = field(form, "name").value.trim(), category = field(form, "category").value;
       if (name.length < 2) throw new Error("Informe o nome da empresa.");
       if (state.companies.some((item) => item.name.trim().toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"))) throw new Error("Esta empresa já está cadastrada.");
