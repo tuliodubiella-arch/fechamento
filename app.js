@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.09.25";
+const APP_VERSION = "2026.09.28";
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
@@ -240,8 +240,10 @@ function renderExecution() {
 }
 function renderGoals() {
   const companies = orderedGoals();
-  const printRows = goalExportRows();
-  return `<section class="panel"><div class="panel-head"><div><h2>Ordem mensal de fechamento</h2><p>HOLDING primeiro. O dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
+  const printRows = companies.map((company, index) => [index + 1, company.name, company.goal.category,
+    company.goal.business_day || "—", dateBR(isHistorical() ? company.goal.legacy_deadline : plannedDate(state.month, company.goal.business_day))]);
+  const printDensity = companies.length > 52 ? "very-dense" : companies.length > 38 ? "dense" : "";
+  return `<section class="panel"><div class="panel-head"><div><h2>Ordem mensal de fechamento</h2><p>HOLDING primeiro. O dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
     <div class="table-wrap"><table style="min-width:1500px"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${item}</th>`).join("")}<th>Mover</th></tr></thead>
     <tbody>${companies.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${index + 1}</strong></td><td><strong>${esc(company.name)}</strong></td>
       <td><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
@@ -250,7 +252,7 @@ function renderGoals() {
       ${departments.map((department) => { const receipt = receiptFor(company.id, department); return `<td><select class="select" data-action="receipt" data-id="${esc(company.id)}" data-department="${department}" ${isHistorical() ? "disabled" : ""}><option value="" ${!receipt || receipt.status === "Pendente" ? "selected" : ""}>Pendente</option><option ${receipt?.status === "Recebido" ? "selected" : ""}>Recebido</option><option ${receipt?.status === "N/A" ? "selected" : ""}>N/A</option></select><small>${receipt?.received_at ? brasilia(receipt.received_at) : receipt?.status === "N/A" ? "Não aplicável" : "Aguardando"}</small></td>`; }).join("")}
       <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || companies[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === companies.length - 1 || companies[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>
     <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>
-    <section class="print-sheet"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1><p>Programação e recebimento dos setores · Horário de Brasília/DF</p></div></div><table><thead><tr>${goalHeaders.map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
+    <section class="print-sheet ${printDensity}"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1></div></div><table><colgroup><col style="width:6%"><col style="width:51%"><col style="width:16%"><col style="width:10%"><col style="width:17%"></colgroup><thead><tr>${["Nº", "Empresa", "Prioridade", "Dia útil", "Previsão"].map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
 }
 const goalHeaders = ["Ordem", "Empresa", "Prioridade", "Dia útil", "Previsão", "Data de entrega", "Financeiro", "RH", "Estoque", "Fiscal"];
 function orderedGoals() {

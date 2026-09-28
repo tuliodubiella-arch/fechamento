@@ -29,4 +29,5 @@ O site atual não é alterado por esta implantação. Na migração, os apontame
 - Os horários de execução e recebimento são mostrados em Brasília/DF. O servidor mantém os instantes em UTC.
 - Em **Execução**, somente o administrador vê **Corrigir registros** nas rotinas com apontamentos. A ação exige conexão, motivo e confirmação; retira todos os eventos daquela rotina no mês selecionado dos tempos e indicadores, sem apagar a trilha de auditoria. Dispositivos com registros offline pendentes devem sincronizar antes de uma correção.
 - Em **Versões**, somente o administrador consulta a trilha de correções e registra manutenções e atualizações do portal.
+- Em **Metas**, **Imprimir lista / PDF** gera uma lista compacta de cinco colunas (ordem, empresa, prioridade, dia útil e previsão) em A4 vertical; a exportação XLSX continua com as informações completas.
 - Os dias úteis excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi de 2026 e feriados adicionais cadastrados no painel. Confirme feriados locais de anos futuros no cadastro.
