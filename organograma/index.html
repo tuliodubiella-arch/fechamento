@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organograma de Rotinas - Contábil e Fiscal</title>
+<style>
+  * { box-sizing: border-box; }
+  :root { --ink:#1a1a1a; --blue:#185fa5; --red:#c0141a; --paper:#fff; --bg:#f4f4f2; --line:#d6d6d2; }
+  body { font-family: Arial, Helvetica, sans-serif; background:var(--bg); margin:0; padding:32px; color:var(--ink); }
+  h1 { text-align:center; font-size:20px; margin:0 0 4px; letter-spacing:.5px; }
+  .subtitle { text-align:center; font-size:13px; color:#555; margin-bottom:24px; }
+  .toolbar { max-width:1080px; margin:0 auto 18px; display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; }
+  .toolbar button, .section-add button, .desc-actions button, .manual-link { font:inherit; font-size:12px; padding:7px 12px; border:1px solid #222; background:#fff; color:inherit; cursor:pointer; text-decoration:none; }
+  .toolbar button:hover, .section-add button:hover, .desc-actions button:hover, .manual-link:hover { background:#eee; }
+  #saveStatus { font-size:11px; color:#888; opacity:.55; margin-right:2px; }
+  .section { max-width:1080px; margin:0 auto 32px; }
+  .section-top { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+  .section-header { display:inline-block; font-size:13px; font-weight:bold; letter-spacing:.5px; color:#fff; padding:5px 14px; }
+  .section-header.contabil { background:#1a1a1a; }
+  .section-header.fiscal { background:var(--blue); }
+  .section-add { display:flex; gap:6px; align-items:center; }
+  .section-add input { font:inherit; font-size:12px; padding:6px 8px; border:1px dashed #999; min-width:220px; }
+  .roster { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:14px; padding:8px 10px; background:#fff; border:1px solid #ddd; }
+  .roster-label { font-size:11px; color:#888; margin-right:4px; text-transform:uppercase; letter-spacing:.3px; }
+  .roster-chip { display:flex; align-items:center; background:#f0f0ee; border:1px solid #ccc; padding:2px 4px 2px 8px; }
+  .roster-chip input[type=text] { border:none; background:transparent; font:inherit; font-size:12px; width:120px; padding:2px; }
+  .roster-chip input[type=text]:focus { outline:none; background:#fff; }
+  .roster-chip button { border:none; background:transparent; color:#999; cursor:pointer; font-size:13px; padding:0 4px; }
+  .roster-chip button:hover { color:var(--red); }
+  .roster-add { display:flex; align-items:center; gap:4px; }
+  .roster-add input[type=text] { font:inherit; font-size:12px; padding:4px 6px; border:1px dashed #aaa; width:130px; }
+  .roster-add button { font:inherit; font-size:12px; padding:4px 10px; border:1px solid #222; background:#fff; cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .card { position:relative; background:#fff; border:1.5px solid #222; padding:12px 10px 10px; text-align:center; display:flex; flex-direction:column; min-height:128px; }
+  .card.highlight { background:#fff6b0; }
+  .color-tools { position:absolute; top:5px; left:5px; display:flex; align-items:center; gap:3px; z-index:2; opacity:0; transition:opacity .12s ease; }
+  .color-tools:hover, .color-tools:focus-within { opacity:1; }
+  .color-picker { width:24px; height:22px; padding:1px; border:1px solid #999; background:#fff; cursor:pointer; }
+  .color-clear { width:22px; height:22px; padding:0; border:1px solid #bbb; background:#fff; color:#777; cursor:pointer; font-size:12px; line-height:20px; }
+  .color-clear:hover { background:#f1f1ef; color:#222; }
+  .color-tools:hover::after { content:'Cor do quadro'; position:absolute; left:0; top:26px; white-space:nowrap; background:#222; color:#fff; font-size:10px; padding:3px 5px; z-index:5; }
+  .rotina { font-weight:bold; font-size:13px; text-transform:uppercase; line-height:1.3; margin:0 22px 5px 0; cursor:text; border-radius:2px; }
+  .rotina:hover { background:#f7f7f5; }
+  .rotina:focus { outline:1px dashed #999; background:#fffdf0; }
+  .card-summary { font-size:10.5px; color:#666; line-height:1.35; margin-bottom:8px; flex:1; }
+  .card-summary.empty { font-style:italic; color:#aaa; }
+  .delete-routine { position:absolute; top:4px; right:5px; width:22px; height:22px; border:none; background:transparent; color:#999; cursor:pointer; font-size:17px; line-height:20px; }
+  .delete-routine:hover { color:var(--red); background:#f7eded; }
+  .resp-wrap { position:relative; margin-top:auto; }
+  .resp-btn { width:100%; color:var(--red); font-weight:bold; font-size:12.5px; text-align:center; border:none; border-top:1px solid #ddd; background:transparent; padding-top:6px; cursor:pointer; font-family:inherit; line-height:1.3; }
+  .resp-btn:hover { background:#f7f7f5; }
+  .resp-btn.placeholder { color:#999; font-weight:normal; }
+  .resp-panel { display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%); background:#fff; border:1px solid #222; box-shadow:2px 2px 0 rgba(0,0,0,.08); z-index:30; min-width:220px; max-height:320px; overflow:auto; padding:6px 0; text-align:left; }
+  .resp-panel.open { display:block; }
+  .resp-panel label { display:block; font-size:12px; font-weight:normal; color:#1a1a1a; padding:4px 12px; cursor:pointer; white-space:nowrap; }
+  .resp-panel label:hover { background:#f0f0ee; }
+  .resp-panel input[type=checkbox] { margin-right:6px; }
+  .resp-panel .add-row { display:flex; gap:4px; padding:6px 10px 2px; border-top:1px solid #eee; margin-top:4px; }
+  .resp-panel .add-row input[type=text] { flex:1; font:inherit; font-size:11.5px; padding:3px 5px; border:1px dashed #aaa; min-width:0; }
+  .resp-panel .add-row button { font:inherit; font-size:11.5px; padding:3px 8px; border:1px solid #222; background:#fff; cursor:pointer; }
+  .legend { max-width:1080px; margin:0 auto 34px; font-size:11px; color:#777; line-height:1.45; }
+
+  /* Tooltip instantâneo */
+  #routineTooltip { display:none; position:fixed; z-index:9999; width:min(560px,calc(100vw - 32px)); max-height:70vh; overflow-y:auto; overflow-x:hidden; background:#fff; border:1px solid #222; box-shadow:0 8px 28px rgba(0,0,0,.20); padding:14px 16px; text-align:left; pointer-events:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+  #routineTooltip.visible { display:block; }
+  #routineTooltip h3 { font-size:13px; margin:0 0 4px; text-transform:uppercase; }
+  #routineTooltip .tip-hint { position:sticky; top:-14px; margin:0 -16px 10px; padding:5px 16px; background:#f5f5f2; border-bottom:1px solid #ddd; font-size:10px; color:#666; z-index:1; }
+  #routineTooltip .tip-body { font-size:11.5px; line-height:1.45; white-space:pre-wrap; color:#333; }
+  #routineTooltip .tip-empty { color:#888; font-style:italic; }
+
+  /* Biblioteca de descrições */
+  .details-shell { max-width:1080px; margin:42px auto 0; }
+  .details-shell > h2 { font-size:18px; margin:0 0 6px; }
+  .details-intro { font-size:12px; color:#666; margin-bottom:18px; }
+  .details-area { margin-bottom:34px; }
+  .details-area-title { font-size:14px; border-bottom:2px solid #222; padding-bottom:6px; margin:0 0 12px; }
+  .details-area-title.fiscal { border-color:var(--blue); }
+  .routine-detail { background:#fff; border:1px solid var(--line); margin-bottom:12px; }
+  .routine-detail summary { cursor:pointer; list-style:none; padding:12px 14px; font-weight:bold; font-size:13px; text-transform:uppercase; display:flex; justify-content:space-between; gap:10px; align-items:center; }
+  .routine-detail summary::-webkit-details-marker { display:none; }
+  .routine-detail summary::after { content:'+'; font-size:18px; font-weight:normal; }
+  .routine-detail[open] summary::after { content:'–'; }
+  .detail-body { border-top:1px solid #eee; padding:14px; }
+  .detail-text { white-space:pre-wrap; font-size:12px; line-height:1.55; color:#2d2d2d; }
+  .detail-empty { color:#999; font-style:italic; }
+  .manual-library { margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb; }
+  .manual-library-title { margin:0 0 10px; font-size:12px; color:#475467; text-transform:uppercase; letter-spacing:.6px; }
+  .manual-item { margin:8px 0; border:1px solid #dce3ed; border-radius:10px; background:#fff; overflow:hidden; }
+  .manual-item > summary { padding:11px 12px; font-size:12px; text-transform:none; }
+  .manual-item > summary::after { content:'+'; color:var(--blue); font-size:16px; }
+  .manual-item[open] > summary::after { content:'–'; }
+  .manual-item-label { display:flex; align-items:center; gap:8px; min-width:0; }
+  .manual-item-tag { flex:none; padding:3px 7px; border-radius:999px; background:#eef2f7; color:#526174; font-size:9px; text-transform:uppercase; letter-spacing:.35px; }
+  .manual-item.adicional .manual-item-tag { background:#e8f0ff; color:#2457a6; }
+  .manual-item-body { padding:0 12px 12px; border-top:1px solid #eef1f5; }
+  .manual-item-summary { margin:10px 0; color:#667085; font-size:11.5px; line-height:1.5; }
+  .manual-item-content { max-height:360px; overflow:auto; padding:12px; border:1px solid #e5e9f0; border-radius:8px; background:#f8fafc; color:#344054; font-size:11.5px; line-height:1.55; white-space:pre-wrap; }
+  .desc-actions { margin-top:12px; display:flex; gap:6px; }
+  .desc-editor { display:none; margin-top:10px; }
+  .desc-editor.open { display:block; }
+  .desc-editor textarea { width:100%; min-height:260px; resize:vertical; font:12px/1.5 Arial,Helvetica,sans-serif; padding:10px; border:1px solid #999; }
+  .badge-desc { font-size:10px; font-weight:normal; text-transform:none; color:#666; }
+  .empty-area { font-size:12px; color:#999; padding:10px 0; }
+
+  @media (max-width:900px){ .grid{grid-template-columns:repeat(2,1fr)} .section-top{align-items:flex-start;flex-direction:column} .section-add{width:100%}.section-add input{flex:1;min-width:0} }
+  @media (max-width:560px){ body{padding:18px 12px}.grid{grid-template-columns:1fr}.toolbar{justify-content:flex-start}.roster-chip input[type=text]{width:105px} }
+  @media print {
+    .toolbar,.section-add,.delete-routine,.resp-panel,.desc-actions,.desc-editor { display:none !important; }
+    .manual-item-content { max-height:none; overflow:visible; }
+    body { background:#fff; padding:10px; }
+    .card { break-inside:avoid; }
+    .routine-detail { break-inside:avoid; }
+    #routineTooltip { display:none !important; }
+    details.routine-detail > .detail-body { display:block !important; }
+  }
+</style>
+<style>
+  /* Atualização visual — preserva integralmente a estrutura e as funções da página */
+  :root {
+    --ink:#172033;
+    --muted:#667085;
+    --blue:#2563eb;
+    --blue-dark:#1d4ed8;
+    --red:#dc2626;
+    --paper:#ffffff;
+    --bg:#f3f6fb;
+    --line:#e3e8f0;
+    --shadow:0 8px 24px rgba(15,23,42,.07);
+    --shadow-hover:0 16px 34px rgba(15,23,42,.13);
+  }
+
+  body {
+    min-height:100vh;
+    padding:40px 28px 56px;
+    color:var(--ink);
+    background:
+      radial-gradient(circle at 10% 0%,rgba(37,99,235,.09),transparent 27rem),
+      radial-gradient(circle at 92% 8%,rgba(14,165,233,.07),transparent 24rem),
+      var(--bg);
+  }
+
+  h1 {
+    font-size:clamp(22px,3vw,32px);
+    font-weight:800;
+    letter-spacing:-.6px;
+    color:#0f172a;
+    margin-bottom:8px;
+  }
+
+  .subtitle {
+    max-width:760px;
+    margin:0 auto 28px;
+    color:var(--muted);
+    font-size:13.5px;
+    line-height:1.55;
+  }
+
+  .toolbar {
+    position:sticky;
+    top:12px;
+    z-index:40;
+    max-width:1120px;
+    margin-bottom:28px;
+    padding:10px;
+    border:1px solid rgba(226,232,240,.9);
+    border-radius:14px;
+    background:rgba(255,255,255,.88);
+    box-shadow:0 8px 28px rgba(15,23,42,.08);
+    backdrop-filter:blur(14px);
+  }
+
+  #saveStatus { margin-right:auto; padding-left:6px; color:#64748b; }
+
+  .toolbar button,
+  .section-add button,
+  .desc-actions button,
+  .manual-link,
+  .roster-add button,
+  .resp-panel .add-row button {
+    border:1px solid #d8dee8;
+    border-radius:9px;
+    background:#fff;
+    color:#344054;
+    font-weight:600;
+    box-shadow:0 1px 2px rgba(16,24,40,.04);
+    transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease,background .16s ease;
+  }
+
+  .toolbar button:hover,
+  .section-add button:hover,
+  .desc-actions button:hover,
+  .manual-link:hover,
+  .roster-add button:hover,
+  .resp-panel .add-row button:hover {
+    transform:translateY(-1px);
+    border-color:#b9c5d6;
+    background:#f8fafc;
+    box-shadow:0 5px 12px rgba(15,23,42,.08);
+  }
+
+  #printBtn,
+  .section-add button {
+    border-color:var(--blue);
+    background:var(--blue);
+    color:#fff;
+  }
+
+  #printBtn:hover,
+  .section-add button:hover { background:var(--blue-dark); border-color:var(--blue-dark); }
+
+  .section { max-width:1120px; margin-bottom:38px; }
+
+  .section-top { margin-bottom:12px; }
+
+  .section-header {
+    padding:7px 15px;
+    border-radius:8px;
+    font-size:12px;
+    letter-spacing:.8px;
+    box-shadow:0 3px 9px rgba(15,23,42,.12);
+  }
+
+  .section-header.contabil { background:linear-gradient(135deg,#172033,#344054); }
+  .section-header.fiscal { background:linear-gradient(135deg,var(--blue-dark),#3b82f6); }
+
+  .section-add input,
+  .roster-add input[type=text],
+  .resp-panel .add-row input[type=text] {
+    border:1px solid #d8dee8;
+    border-radius:9px;
+    background:#fff;
+    outline:none;
+    transition:border-color .15s ease,box-shadow .15s ease;
+  }
+
+  .section-add input:focus,
+  .roster-add input[type=text]:focus,
+  .resp-panel .add-row input[type=text]:focus {
+    border-color:#84aaf8;
+    box-shadow:0 0 0 3px rgba(37,99,235,.12);
+  }
+
+  .roster {
+    gap:8px;
+    padding:11px 12px;
+    border-color:var(--line);
+    border-radius:12px;
+    background:rgba(255,255,255,.78);
+    box-shadow:0 3px 12px rgba(15,23,42,.04);
+  }
+
+  .roster-label { font-weight:700; color:#778195; }
+
+  .roster-chip {
+    border-color:#dce3ed;
+    border-radius:999px;
+    background:#f7f9fc;
+    padding:3px 5px 3px 10px;
+  }
+
+  .roster-chip input[type=text] { color:#344054; }
+  .roster-chip input[type=text]:focus { border-radius:999px; }
+  .roster-chip button { border-radius:50%; }
+
+  .grid { gap:16px; position:relative; overflow:visible; min-height:48px; }
+
+  .card {
+    min-height:150px;
+    padding:17px 14px 14px;
+    text-align:left;
+    border:1px solid var(--line);
+    border-radius:15px;
+    box-shadow:var(--shadow);
+    overflow:visible;
+    transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+    z-index:1;
+  }
+
+  .card::before {
+    content:'';
+    position:absolute;
+    top:0;
+    left:16px;
+    right:16px;
+    height:3px;
+    border-radius:0 0 4px 4px;
+    background:linear-gradient(90deg,#94a3b8,#cbd5e1);
+    opacity:.7;
+  }
+
+  .section:has(.section-header.fiscal) .card::before {
+    background:linear-gradient(90deg,var(--blue),#60a5fa);
+  }
+
+  .card:hover {
+    transform:translateY(-4px);
+    border-color:#cbd5e1;
+    box-shadow:var(--shadow-hover);
+    z-index:2;
+  }
+
+  .card.panel-open,
+  .card.panel-open:hover {
+    transform:none;
+    z-index:25;
+  }
+
+  .drag-handle {
+    position:absolute;
+    top:9px;
+    right:36px;
+    width:25px;
+    height:25px;
+    display:grid;
+    place-items:center;
+    border:0;
+    border-radius:7px;
+    background:transparent;
+    color:#94a3b8;
+    cursor:grab;
+    font:700 17px/1 Arial,sans-serif;
+    opacity:.6;
+    user-select:none;
+    z-index:3;
+  }
+
+  .drag-handle:hover,
+  .drag-handle:focus-visible {
+    color:#334155;
+    background:#eef2f7;
+    opacity:1;
+    outline:none;
+  }
+
+  .drag-handle:active { cursor:grabbing; }
+  .card.dragging { opacity:.42; transform:scale(.98); box-shadow:none; }
+  .card.drop-target { outline:3px solid #2563eb; outline-offset:3px; z-index:4; }
+  .grid.drag-over {
+    min-height:96px;
+    border-radius:16px;
+    outline:2px dashed #93c5fd;
+    outline-offset:6px;
+    background:rgba(219,234,254,.24);
+  }
+
+  .card.highlight { background:linear-gradient(145deg,#fffbeb,#fff); border-color:#f4d27a; }
+
+  .rotina {
+    margin:4px 54px 7px 0;
+    color:#1e293b;
+    font-size:13px;
+    letter-spacing:.15px;
+  }
+
+  .rotina:hover { background:#f1f5f9; }
+  .card-summary { color:#6b7280; font-size:11px; line-height:1.48; }
+
+  .delete-routine {
+    top:8px;
+    right:8px;
+    border-radius:7px;
+    transition:background .15s ease,color .15s ease;
+  }
+
+  .color-tools { top:8px; left:8px; }
+  .color-picker,.color-clear { border-color:#d8dee8; border-radius:6px; }
+
+  .resp-btn {
+    margin-top:4px;
+    padding:9px 4px 1px;
+    border-top-color:#edf0f4;
+    color:var(--red);
+    text-align:left;
+  }
+
+  .resp-panel {
+    left:0;
+    transform:none;
+    min-width:240px;
+    padding:7px;
+    border-color:#d5dce7;
+    border-radius:12px;
+    box-shadow:0 16px 36px rgba(15,23,42,.16);
+    z-index:30;
+    pointer-events:auto;
+  }
+
+  .resp-panel label { border-radius:7px; padding:7px 9px; }
+  .resp-panel label:hover { background:#f1f5f9; }
+
+  .legend {
+    max-width:1120px;
+    padding:14px 16px;
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    background:rgba(255,255,255,.68);
+    color:#667085;
+  }
+
+  .details-shell { max-width:1120px; }
+  .details-shell > h2 { color:#172033; font-size:21px; letter-spacing:-.2px; }
+  .details-intro { color:var(--muted); }
+
+  .details-area-title {
+    border-width:0 0 3px;
+    border-image:linear-gradient(90deg,#344054,transparent) 1;
+  }
+
+  .details-area-title.fiscal { border-image:linear-gradient(90deg,var(--blue),transparent) 1; }
+
+  .routine-detail {
+    border-color:var(--line);
+    border-radius:12px;
+    box-shadow:0 3px 12px rgba(15,23,42,.04);
+    overflow:hidden;
+    transition:box-shadow .16s ease,border-color .16s ease;
+  }
+
+  .routine-detail:hover { border-color:#cfd7e3; box-shadow:0 7px 18px rgba(15,23,42,.07); }
+  .routine-detail summary { padding:14px 16px; color:#253047; }
+  .routine-detail summary::after { color:var(--blue); }
+  .detail-body { padding:16px; background:#fbfcfe; }
+
+  #routineTooltip {
+    border-color:#d7deea;
+    border-radius:14px;
+    box-shadow:0 22px 48px rgba(15,23,42,.2);
+  }
+
+  #routineTooltip .tip-hint { background:#f1f5f9; color:#64748b; }
+
+  @media (max-width:900px) {
+    body { padding:28px 18px 44px; }
+    .toolbar { position:static; }
+    #saveStatus { width:100%; margin-bottom:2px; }
+  }
+
+  @media (max-width:560px) {
+    body { padding:22px 12px 38px; }
+    h1 { text-align:left; }
+    .subtitle { text-align:left; margin-bottom:20px; }
+    .toolbar { border-radius:12px; }
+    .toolbar button { flex:1; }
+    .card { min-height:138px; }
+  }
+
+  @media print {
+    body { background:#fff; }
+    .toolbar { position:static; box-shadow:none; }
+    .card,.routine-detail,.roster,.legend { box-shadow:none; }
+    .card { transform:none !important; }
+  }
+</style>
+<link rel="stylesheet" href="hosted.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Identidade visual digital Grupo Cavalca */
+  :root { --ink:#39373a; --muted:#626166; --blue:#f7ae14; --blue-dark:#765000; --paper:#fff; --bg:#f8f8f7; --line:#e3e5e6; }
+  body { font-family:Raleway,Arial,sans-serif; color:#39373a; background:#f8f8f7; }
+  .cavalca-logo { display:block; width:170px; max-width:45vw; height:auto; margin:0 auto 18px; }
+  h1 { color:#39373a; }
+  #printBtn { background:#39373a; border-color:#39373a; color:#fff; }
+  #printBtn:hover { background:#504f53; border-color:#504f53; }
+  .section-header.contabil { background:#39373a; }
+  .section-header.fiscal { background:#f7ae14; color:#39373a; }
+  .card::before, .section:has(.section-header.fiscal) .card::before { background:#f7ae14; }
+  .card.drop-target { outline-color:#f7ae14; }
+  .routine-detail summary::after, .manual-item > summary::after { color:#765000; }
+  :is(button,input,textarea,summary,a):focus-visible { outline:3px solid #f7ae14; outline-offset:2px; }
+  .view-page { display:none; }
+  .view-page.active { display:block; }
+  .view-switch { display:flex; gap:4px; padding:4px; border:1px solid #dfe3e7; border-radius:11px; background:#f3f4f5; }
+  .toolbar .view-switch button { border:0; border-radius:8px; background:transparent; color:#626166; box-shadow:none; }
+  .toolbar .view-switch button:hover { transform:none; background:#fff; box-shadow:none; }
+  .toolbar .view-switch button.active { background:#39373a; color:#fff; }
+  .user-view { max-width:1120px; margin:0 auto; }
+  .user-view-header { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; margin:4px 0 18px; }
+  .user-view-title { margin:0 0 5px; color:#39373a; font-size:20px; letter-spacing:-.2px; }
+  .user-view-intro { margin:0; color:#626166; font-size:12px; line-height:1.5; }
+  .user-stats { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .user-stat { min-width:92px; padding:9px 12px; border:1px solid #e3e5e6; border-radius:11px; background:#fff; text-align:center; box-shadow:0 3px 12px rgba(15,23,42,.04); }
+  .user-stat strong { display:block; color:#39373a; font-size:18px; }
+  .user-stat span { color:#77767a; font-size:9px; font-weight:700; letter-spacing:.45px; text-transform:uppercase; }
+  .user-table-tools { display:flex; gap:9px; margin-bottom:12px; }
+  .user-table-tools input,.user-table-tools select { min-height:39px; border:1px solid #d8dde2; border-radius:9px; background:#fff; color:#39373a; font:12px Raleway,Arial,sans-serif; padding:8px 11px; }
+  .user-table-tools input { flex:1; min-width:180px; }
+  .user-table-tools select { min-width:170px; }
+  .user-table-wrap { overflow:auto; border:1px solid #dfe3e7; border-radius:14px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.06); }
+  .user-table { width:100%; min-width:780px; border-collapse:separate; border-spacing:0; text-align:left; }
+  .user-table th { position:sticky; top:0; z-index:1; padding:12px 14px; border-bottom:1px solid #dfe3e7; background:#39373a; color:#fff; font-size:10px; letter-spacing:.55px; text-transform:uppercase; }
+  .user-table td { padding:13px 14px; border-bottom:1px solid #eceeef; vertical-align:top; font-size:12px; }
+  .user-table tbody tr:last-child td { border-bottom:0; }
+  .user-table tbody tr:hover td { background:#fffdf7; }
+  .user-name { color:#39373a; font-weight:800; }
+  .user-team-list { display:flex; flex-wrap:wrap; gap:5px; }
+  .user-team { display:inline-block; padding:4px 8px; border-radius:999px; background:#f0f1f2; color:#55545a; font-size:9px; font-weight:800; letter-spacing:.35px; }
+  .user-team.fiscal { background:#fff2cf; color:#765000; }
+  .user-routines { display:grid; gap:7px; }
+  .user-routine-item { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:9px 10px; border-left:3px solid #f7ae14; border-radius:0 8px 8px 0; background:#f8f8f7; }
+  .user-routine-main { min-width:0; }
+  .user-routine-area { display:inline-block; margin:0 6px 3px 0; padding:2px 5px; border-radius:5px; background:#e9eaec; color:#55545a; font-size:8px; font-weight:800; letter-spacing:.3px; vertical-align:1px; }
+  .user-routine-area.fiscal { background:#ffedbd; color:#765000; }
+  .user-routine-link { padding:0; border:0; background:transparent; color:#39373a; cursor:pointer; font:700 11px/1.35 Raleway,Arial,sans-serif; text-align:left; text-transform:uppercase; }
+  .user-routine-link:hover { color:#765000; text-decoration:underline; }
+  .user-routine-summary { display:block; margin-top:3px; color:#747378; font-size:10px; line-height:1.4; }
+  .user-manual-count { flex:none; color:#765000; font-size:9px; font-weight:700; white-space:nowrap; }
+  .user-total { text-align:center; font-size:15px; font-weight:800; }
+  .user-empty { color:#99989b; font-size:11px; font-style:italic; }
+  .user-table-empty { padding:28px !important; color:#77767a; text-align:center; }
+  .card.view-focus { animation:viewFocus 1.6s ease; }
+  @keyframes viewFocus { 0%,100%{box-shadow:var(--shadow)} 35%{box-shadow:0 0 0 4px rgba(247,174,20,.38),var(--shadow-hover)} }
+  @media (max-width:700px) { .user-view-header{align-items:flex-start;flex-direction:column}.user-stats{justify-content:flex-start}.user-table-tools{flex-direction:column}.user-table-tools select{width:100%} }
+  @media (max-width:560px) { .cavalca-logo { width:140px; margin-left:0; }.view-switch{width:100%}.toolbar .view-switch button{flex:1}.user-stat{flex:1}.user-view-title{font-size:18px} }
+  @media print { .view-page:not(.active),.user-table-tools,.view-switch { display:none !important; }.user-table-wrap{overflow:visible;box-shadow:none}.user-table{min-width:0}.user-table th{position:static}.user-routine-link{text-decoration:none} }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+</head>
+<body>
+<div id="accessGate" class="org-auth-screen"><div class="org-auth-box"><div class="org-auth-brand"><img src="../brand/logo-principal.png" alt="Grupo Cavalca"><strong>Organograma de rotinas</strong></div><h1>Acesse o painel</h1><p>Entre com o mesmo e-mail e senha utilizados no Fechamento Contábil.</p><form id="orgLogin"><label><span>E-mail</span><input name="email" type="email" autocomplete="email" required></label><label><span>Senha</span><input name="password" type="password" minlength="8" autocomplete="current-password" required></label><button type="submit">Entrar</button></form><button id="orgForgot" class="org-secondary" type="button">Esqueci minha senha</button><div id="orgSetup" hidden><p>Estrutura criada. Selecione a carga inicial protegida do organograma.</p><input id="orgSeedFile" type="file" accept="application/json,.json"><button id="orgImport" type="button">Importar dados iniciais</button></div><p id="orgAuthError" class="org-auth-error"></p></div></div>
+<div id="protectedApp" hidden>
+<img class="cavalca-logo" src="../brand/logo-principal.png" alt="Grupo Cavalca">
+<h1>ORGANOGRAMA DE ROTINAS — CONTÁBIL E FISCAL</h1>
+<div class="subtitle">Grupo Cavalca · equipe, responsáveis, rotinas e procedimentos operacionais em um único painel</div>
+<div class="toolbar">
+  <a class="portal-link" href="../">Fechamento contábil</a><span id="orgMember"></span><button id="orgLogout" type="button">Sair</button><span id="saveStatus">Alterações são salvas automaticamente neste navegador</span>
+  <div class="view-switch" role="tablist" aria-label="Escolher visualização">
+    <button id="organogramTab" class="active" type="button" role="tab" aria-selected="true" aria-controls="organogramView">Organograma</button>
+    <button id="userTab" type="button" role="tab" aria-selected="false" aria-controls="userView">Rotinas por usuário</button>
+  </div>
+  <button id="expandDescriptions">Expandir descrições</button>
+  <button id="restoreBtn" hidden>Restaurar padrão</button>
+  <button id="printBtn" onclick="window.print()">Imprimir / salvar PDF</button>
+</div>
+<main id="organogramView" class="view-page active" role="tabpanel" aria-labelledby="organogramTab">
+  <div id="sections"></div>
+  <div class="legend">Clique no título de uma rotina para editar o nome. Clique no responsável para selecionar pessoas. Use “Adicionar rotina” para criar novos quadros e “×” para excluí-los. Passe o mouse sobre qualquer quadro para visualizar instantaneamente a descrição da rotina; mova o cursor para a janela para rolar e ler o texto completo. Passe o mouse sobre o canto superior esquerdo de cada quadro para revelar os controles de cor e personalizá-lo. As descrições completas também ficam disponíveis abaixo do organograma e podem ser editadas.</div>
+  <div class="details-shell">
+    <h2>DESCRIÇÃO COMPLETA DAS ROTINAS</h2>
+    <div class="details-intro">Consulte os procedimentos por atividade. Os textos ficam vinculados aos respectivos quadros do organograma.</div>
+    <div id="detailsContainer"></div>
+  </div>
+</main>
+<section id="userView" class="view-page user-view" role="tabpanel" aria-labelledby="userTab" hidden>
+  <div class="user-view-header">
+    <div><h2 class="user-view-title">ROTINAS POR USUÁRIO</h2><p class="user-view-intro">Consulte as atividades atribuídas a cada integrante das equipes Contábil e Fiscal.</p></div>
+    <div class="user-stats" aria-label="Resumo da distribuição"><div class="user-stat"><strong id="userCount">0</strong><span>Usuários</span></div><div class="user-stat"><strong id="assignmentCount">0</strong><span>Atribuições</span></div><div class="user-stat"><strong id="unassignedCount">0</strong><span>Sem responsável</span></div></div>
+  </div>
+  <div class="user-table-tools"><input id="userSearch" type="search" placeholder="Buscar usuário ou rotina" aria-label="Buscar usuário ou rotina"><select id="teamFilter" aria-label="Filtrar por equipe"><option value="">Todas as equipes</option><option value="contabil">Contábil</option><option value="fiscal">Fiscal</option></select></div>
+  <div class="user-table-wrap">
+    <table class="user-table"><thead><tr><th scope="col">Usuário</th><th scope="col">Equipe</th><th scope="col">Rotinas atribuídas</th><th scope="col">Total</th></tr></thead><tbody id="userTableBody"></tbody></table>
+  </div>
+</section>
+</div>
+<div id="routineTooltip" role="tooltip"><div class="tip-hint">Passe o cursor para esta janela e role para ler o conteúdo completo.</div><h3 id="tipTitle"></h3><div id="tipBody" class="tip-body"></div></div>
+<script>
+const POP_DESCRIPTIONS = {};
+const POP_SUMMARIES = {};
+let idCounter = 0;
+function makePerson(name){ return { id:'p'+(Date.now().toString(36))+(idCounter++), name }; }
+function makeRid(prefix='r'){ return prefix+'_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8); }
+
+const defaultSections = [];
+
+const MANUAL_FILES={};
+const MANUAL_VERSIONS={};
+const STORAGE_KEY='cavalca_organograma_state_v2';
+const OLD_STORAGE_KEY='cavalca_organograma_state_v1';
+let secoes=[];
+function buildFromState(state){
+  secoes=Object.entries(state||{}).map(([key,stored])=>{
+    const equipe=(stored.equipe||[]).map(makePerson);
+    const rotinas=(stored.rotinas||[]).map(sr=>{
+      const r={rid:sr.rid||makeRid(key),nome:sr.nome||'(sem nome)',desc:sr.desc||'',summary:sr.summary||'',manualFiles:Array.isArray(sr.manualFiles)?sr.manualFiles:[],manualVersion:Number(sr.manualVersion)||0,destaque:!!sr.destaque,cor:sr.cor||'',selected:new Set(),_dom:{}};
+      (sr.selected||[]).forEach(personName=>{const person=equipe.find(p=>p.name===personName);if(person)r.selected.add(person.id)});
+      return r;
+    });
+    return {key,titulo:stored.titulo||(key==='fiscal'?'FISCAL':'CONTÁBIL'),equipe,rotinas};
+  });
+}
+function personName(sec,id){const person=sec.equipe.find(p=>p.id===id);return person?person.name:''}
+function serializeState(){
+  const data={};secoes.forEach(sec=>{data[sec.key]={titulo:sec.titulo,equipe:sec.equipe.map(p=>p.name),rotinas:sec.rotinas.map(r=>({rid:r.rid,nome:r.nome,desc:r.desc||'',summary:r.summary||'',manualFiles:Array.isArray(r.manualFiles)?r.manualFiles:[],manualVersion:Number(r.manualVersion)||0,destaque:!!r.destaque,cor:r.cor||'',selected:Array.from(r.selected).map(id=>personName(sec,id)).filter(Boolean)}))}});return data;
+}
+async function persistRemoteState(){
+  const status=document.getElementById('saveStatus');
+  try{const {error}=await orgClient.from('org_workspace').update({payload:serializeState(),updated_at:new Date().toISOString(),updated_by:orgCurrentUserId}).eq('id','main');if(error)throw error;status.textContent='Salvo às '+new Date().toLocaleTimeString('pt-BR');status.style.opacity='1'}catch(error){status.textContent='Falha ao salvar · tente novamente';status.style.opacity='1';console.error(error)}
+}
+function saveState(){const status=document.getElementById('saveStatus');status.textContent='Salvando…';status.style.opacity='1';clearTimeout(saveState._t);saveState._t=setTimeout(persistRemoteState,500)}
+function closeAllPanels(except){document.querySelectorAll('.resp-panel.open').forEach(p=>{if(p!==except){p.classList.remove('open');const card=p.closest('.card');if(card)card.classList.remove('panel-open');const btn=card&&card.querySelector('.resp-btn');if(btn)btn.setAttribute('aria-expanded','false')}})}
+document.addEventListener('click',()=>closeAllPanels());
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAllPanels()});
+
+const sectionsEl=document.getElementById('sections');
+const detailsEl=document.getElementById('detailsContainer');
+const organogramView=document.getElementById('organogramView'),userView=document.getElementById('userView'),userTableBody=document.getElementById('userTableBody');
+const organogramTab=document.getElementById('organogramTab'),userTab=document.getElementById('userTab'),expandDescriptionsBtn=document.getElementById('expandDescriptions');
+const tip=document.getElementById('routineTooltip'), tipTitle=document.getElementById('tipTitle'), tipBody=document.getElementById('tipBody');
+let tooltipHideTimer=null;
+function tooltipShow(e,r){ clearTimeout(tooltipHideTimer); tipTitle.textContent=r.nome||'(sem nome)'; tipBody.textContent=(r.desc||'').trim()||'Descrição ainda não cadastrada. Use “Editar descrição” na seção completa abaixo.'; tipBody.classList.toggle('tip-empty',!(r.desc||'').trim()); tip.classList.add('visible'); tooltipPosition(e.currentTarget); }
+function tooltipPosition(card){ if(!tip.classList.contains('visible')||!card)return; const pad=14,gap=12,rect=card.getBoundingClientRect(),w=tip.offsetWidth,h=tip.offsetHeight; let x=rect.right+gap; if(x+w>innerWidth-pad)x=rect.left-w-gap; if(x<pad)x=Math.min(Math.max(pad,rect.left),Math.max(pad,innerWidth-w-pad)); let y=rect.top; if(y+h>innerHeight-pad)y=Math.max(pad,innerHeight-h-pad); tip.style.left=Math.round(x)+'px'; tip.style.top=Math.round(Math.max(pad,y))+'px'; }
+function tooltipScheduleHide(){ clearTimeout(tooltipHideTimer); tooltipHideTimer=setTimeout(()=>tip.classList.remove('visible'),450); }
+function tooltipHide(){ clearTimeout(tooltipHideTimer); tip.classList.remove('visible'); }
+tip.addEventListener('mouseenter',()=>clearTimeout(tooltipHideTimer));
+tip.addEventListener('mouseleave',tooltipScheduleHide);
+
+function updateBtnText(sec,r){const names=Array.from(r.selected).map(id=>personName(sec,id)).filter(Boolean); if(!r._dom.btn)return; if(!names.length){r._dom.btn.textContent='— selecionar —';r._dom.btn.classList.add('placeholder')}else{r._dom.btn.textContent=names.join(' + ');r._dom.btn.classList.remove('placeholder')}}
+function renderPanel(sec,r){const panel=r._dom.panel;if(!panel)return; panel.innerHTML=''; sec.equipe.forEach(p=>{const label=document.createElement('label'),cb=document.createElement('input');cb.type='checkbox';cb.checked=r.selected.has(p.id);cb.addEventListener('change',()=>{cb.checked?r.selected.add(p.id):r.selected.delete(p.id);updateBtnText(sec,r);saveState()});label.append(cb,document.createTextNode(p.name));panel.appendChild(label)}); const row=document.createElement('div');row.className='add-row';const inp=document.createElement('input');inp.type='text';inp.placeholder='novo nome';const b=document.createElement('button');b.textContent='+';function add(){const v=inp.value.trim();if(!v)return;const p=makePerson(v);sec.equipe.push(p);r.selected.add(p.id);renderAll();saveState()}b.addEventListener('click',e=>{e.stopPropagation();add()});inp.addEventListener('click',e=>e.stopPropagation());inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();add()}});row.append(inp,b);panel.appendChild(row)}
+function removePerson(sec,id){sec.equipe=sec.equipe.filter(p=>p.id!==id);sec.rotinas.forEach(r=>r.selected.delete(id));renderAll();saveState()}
+function refreshRoster(sec,el){el.innerHTML='';const lab=document.createElement('span');lab.className='roster-label';lab.textContent='Equipe:';el.appendChild(lab);sec.equipe.forEach(p=>{const chip=document.createElement('div');chip.className='roster-chip';const inp=document.createElement('input');inp.type='text';inp.value=p.name;inp.addEventListener('input',()=>{p.name=inp.value;sec.rotinas.forEach(r=>{renderPanel(sec,r);updateBtnText(sec,r)});saveState()});const rm=document.createElement('button');rm.textContent='×';rm.title='Remover da equipe';rm.addEventListener('click',()=>removePerson(sec,p.id));chip.append(inp,rm);el.appendChild(chip)});const wrap=document.createElement('div');wrap.className='roster-add';const inp=document.createElement('input');inp.type='text';inp.placeholder='+ nome';const b=document.createElement('button');b.textContent='Adicionar';function add(){const v=inp.value.trim();if(!v)return;sec.equipe.push(makePerson(v));renderAll();saveState()}b.addEventListener('click',add);inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();add()}});wrap.append(inp,b);el.appendChild(wrap)}
+
+function deleteRoutine(sec,r){ if(!confirm('Excluir a rotina “'+r.nome+'”? Esta ação remove também a descrição e os responsáveis vinculados a este quadro.'))return; sec.rotinas=sec.rotinas.filter(x=>x!==r);renderAll();saveState(); }
+function addRoutine(sec,name){const n=(name||'').trim();if(!n)return;sec.rotinas.push({rid:makeRid(sec.key),nome:n,desc:'',summary:'',manualVersion:0,destaque:false,cor:'',selected:new Set(),_dom:{}});renderAll();saveState();}
+
+let draggedRoutine=null;
+function clearDragState(){
+  document.querySelectorAll('.card.dragging,.card.drop-target').forEach(el=>el.classList.remove('dragging','drop-target'));
+  document.querySelectorAll('.grid.drag-over').forEach(el=>el.classList.remove('drag-over'));
+}
+function moveRoutine(rid,targetSec,targetIndex){
+  const sourceSec=secoes.find(sec=>sec.rotinas.some(r=>r.rid===rid));
+  if(!sourceSec||!targetSec)return;
+  const sourceIndex=sourceSec.rotinas.findIndex(r=>r.rid===rid);
+  if(sourceIndex<0)return;
+  const routine=sourceSec.rotinas[sourceIndex];
+  const assignedNames=Array.from(routine.selected).map(id=>personName(sourceSec,id)).filter(Boolean);
+  sourceSec.rotinas.splice(sourceIndex,1);
+  if(sourceSec===targetSec&&sourceIndex<targetIndex)targetIndex--;
+  targetIndex=Math.max(0,Math.min(targetIndex,targetSec.rotinas.length));
+  const selected=new Set();
+  assignedNames.forEach(name=>{
+    let person=targetSec.equipe.find(p=>p.name.trim().toLocaleLowerCase('pt-BR')===name.trim().toLocaleLowerCase('pt-BR'));
+    if(!person){person=makePerson(name);targetSec.equipe.push(person)}
+    selected.add(person.id);
+  });
+  routine.selected=selected;
+  targetSec.rotinas.splice(targetIndex,0,routine);
+  draggedRoutine=null;
+  renderAll();
+  saveState();
+}
+function targetSecIndex(sec,rid){const index=sec.rotinas.findIndex(r=>r.rid===rid);return index<0?sec.rotinas.length:index}
+function setupRoutineDragging(){
+  const sectionEls=Array.from(sectionsEl.querySelectorAll('.section'));
+  secoes.forEach((sec,sectionIndex)=>{
+    const grid=sectionEls[sectionIndex]&&sectionEls[sectionIndex].querySelector('.grid');
+    if(!grid)return;
+    grid.setAttribute('aria-label','Rotinas da equipe '+sec.titulo+'. Arraste pelo ícone de movimentação para reorganizar.');
+    sec.rotinas.forEach(r=>{
+      const card=r._dom.card;
+      if(!card)return;
+      card.dataset.rid=r.rid;
+      const handle=document.createElement('button');
+      handle.type='button';
+      handle.className='drag-handle';
+      handle.draggable=true;
+      handle.textContent='⠿';
+      handle.title='Arrastar rotina para outra posição ou equipe';
+      handle.setAttribute('aria-label','Mover rotina '+r.nome);
+      handle.addEventListener('mouseenter',tooltipHide);
+      handle.addEventListener('click',e=>e.stopPropagation());
+      handle.addEventListener('dragstart',e=>{
+        closeAllPanels();tooltipHide();
+        draggedRoutine={rid:r.rid};
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain',r.rid);
+        if(e.dataTransfer.setDragImage)e.dataTransfer.setDragImage(card,24,20);
+      });
+      handle.addEventListener('dragend',()=>{draggedRoutine=null;clearDragState()});
+      card.appendChild(handle);
+    });
+    grid.addEventListener('dragover',e=>{
+      if(!draggedRoutine)return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect='move';
+      clearDragState();
+      const source=document.querySelector('.card[data-rid="'+CSS.escape(draggedRoutine.rid)+'"]');
+      if(source)source.classList.add('dragging');
+      grid.classList.add('drag-over');
+      const target=e.target.closest('.card');
+      if(target&&target!==source)target.classList.add('drop-target');
+    });
+    grid.addEventListener('dragleave',e=>{if(!grid.contains(e.relatedTarget)){grid.classList.remove('drag-over');grid.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'))}});
+    grid.addEventListener('drop',e=>{
+      if(!draggedRoutine)return;
+      e.preventDefault();
+      const target=e.target.closest('.card');
+      const targetIndex=target?targetSecIndex(sec,target.dataset.rid):sec.rotinas.length;
+      const rid=draggedRoutine.rid;
+      clearDragState();
+      moveRoutine(rid,sec,targetIndex);
+    });
+  });
+}
+
+function renderSections(){ sectionsEl.innerHTML=''; secoes.forEach(sec=>{const wrap=document.createElement('div');wrap.className='section';const top=document.createElement('div');top.className='section-top';const head=document.createElement('div');head.className='section-header '+sec.key;head.textContent=sec.titulo;const add=document.createElement('div');add.className='section-add';const ai=document.createElement('input');ai.placeholder='Nome da nova rotina';const ab=document.createElement('button');ab.textContent='+ Adicionar rotina';function doAdd(){const v=ai.value;ai.value='';addRoutine(sec,v)}ab.addEventListener('click',doAdd);ai.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();doAdd()}});add.append(ai,ab);top.append(head,add);wrap.appendChild(top);const roster=document.createElement('div');roster.className='roster';wrap.appendChild(roster);refreshRoster(sec,roster);const grid=document.createElement('div');grid.className='grid';sec.rotinas.forEach(r=>{const card=document.createElement('div');card.className='card'+(r.destaque?' highlight':'');if(r.cor)card.style.backgroundColor=r.cor;card.addEventListener('mouseenter',e=>tooltipShow(e,r));card.addEventListener('mouseleave',tooltipScheduleHide);const colorTools=document.createElement('div');colorTools.className='color-tools';colorTools.addEventListener('mouseenter',tooltipHide);colorTools.addEventListener('click',e=>e.stopPropagation());const color=document.createElement('input');color.type='color';color.className='color-picker';color.title='Escolher cor do quadro';color.value=r.cor||'#ffffff';color.addEventListener('input',()=>{r.cor=color.value;card.style.backgroundColor=r.cor;saveState()});const clearColor=document.createElement('button');clearColor.type='button';clearColor.className='color-clear';clearColor.title='Remover cor personalizada';clearColor.textContent='↺';clearColor.addEventListener('click',e=>{e.stopPropagation();r.cor='';color.value='#ffffff';card.style.backgroundColor='';saveState()});colorTools.append(color,clearColor);const del=document.createElement('button');del.className='delete-routine';del.type='button';del.title='Excluir rotina';del.textContent='×';del.addEventListener('mouseenter',tooltipHide);del.addEventListener('click',e=>{e.stopPropagation();deleteRoutine(sec,r)});const title=document.createElement('div');title.className='rotina';title.contentEditable='true';title.spellcheck=false;title.textContent=r.nome;title.addEventListener('click',e=>e.stopPropagation());title.addEventListener('input',()=>{r.nome=title.textContent.trim();saveState();renderDetails()});title.addEventListener('blur',()=>{if(!title.textContent.trim()){r.nome='(sem nome)';title.textContent=r.nome;saveState();renderDetails()}});const sm=document.createElement('div');sm.className='card-summary'+((r.summary||r.desc)?'':' empty');sm.textContent=r.summary||((r.desc||'').split('\n').find(x=>x.trim()&&!/^PROCEDIMENTO|^POP\b/i.test(x))||'Descrição ainda não cadastrada.');const rw=document.createElement('div');rw.className='resp-wrap';const btn=document.createElement('button');btn.type='button';btn.className='resp-btn placeholder';btn.setAttribute('aria-haspopup','true');btn.setAttribute('aria-expanded','false');const panel=document.createElement('div');panel.className='resp-panel';panel.addEventListener('click',e=>e.stopPropagation());panel.addEventListener('mouseenter',tooltipHide);btn.addEventListener('mouseenter',tooltipHide);btn.addEventListener('click',e=>{e.stopPropagation();tooltipHide();const open=panel.classList.contains('open');closeAllPanels();if(!open){panel.classList.add('open');card.classList.add('panel-open');btn.setAttribute('aria-expanded','true')}});rw.append(btn,panel);card.append(colorTools,del,title,sm,rw);grid.appendChild(card);r._dom={card,btn,panel};renderPanel(sec,r);updateBtnText(sec,r)});wrap.appendChild(grid);sectionsEl.appendChild(wrap)}); }
+
+function renderManualLibrary(r){if(!Array.isArray(r.manualFiles)||!r.manualFiles.length)return null;const library=document.createElement('section');library.className='manual-library';const heading=document.createElement('h4');heading.className='manual-library-title';heading.textContent='Manuais e materiais adicionais';library.appendChild(heading);r.manualFiles.forEach((item,index)=>{const detail=document.createElement('details');detail.className='manual-item '+(item.role||'principal');const summary=document.createElement('summary');const label=document.createElement('span');label.className='manual-item-label';const tag=document.createElement('span');tag.className='manual-item-tag';tag.textContent=item.role==='adicional'?'Item adicional':'Documento principal';const title=document.createElement('span');title.textContent=item.title||item.label||'Manual';label.append(tag,title);summary.appendChild(label);const body=document.createElement('div');body.className='manual-item-body';const description=document.createElement('p');description.className='manual-item-summary';description.textContent=item.summary||(item.role==='adicional'?'Material complementar desta rotina.':'Procedimento operacional geral da rotina.');body.appendChild(description);if(item.content){const content=document.createElement('div');content.className='manual-item-content';content.textContent=item.content;body.appendChild(content)}const link=document.createElement('a');link.className='manual-link';link.href=encodeURI(item.path);link.target='_blank';link.rel='noopener';link.textContent=item.label||'Abrir documento oficial';body.appendChild(link);detail.append(summary,body);library.appendChild(detail)});return library}
+function renderDetails(){ detailsEl.innerHTML=''; secoes.forEach(sec=>{const area=document.createElement('section');area.className='details-area';const h=document.createElement('h3');h.className='details-area-title '+sec.key;h.textContent=sec.titulo;area.appendChild(h);if(!sec.rotinas.length){const e=document.createElement('div');e.className='empty-area';e.textContent='Nenhuma rotina cadastrada.';area.appendChild(e)}sec.rotinas.forEach(r=>{const d=document.createElement('details');d.className='routine-detail';d.dataset.rid=r.rid;const sum=document.createElement('summary');const label=document.createElement('span');label.textContent=r.nome;const badge=document.createElement('span');badge.className='badge-desc';const manualCount=Array.isArray(r.manualFiles)?r.manualFiles.length:0;badge.textContent=manualCount?manualCount+' '+(manualCount===1?'manual':'materiais'):((r.desc||'').trim()?'descrição cadastrada':'sem descrição');sum.append(label,badge);const body=document.createElement('div');body.className='detail-body';const txt=document.createElement('div');txt.className='detail-text'+((r.desc||'').trim()?'':' detail-empty');txt.textContent=(r.desc||'').trim()||'Descrição ainda não cadastrada para esta rotina.';const actions=document.createElement('div');actions.className='desc-actions';const edit=document.createElement('button');edit.type='button';edit.textContent='Editar descrição';const editor=document.createElement('div');editor.className='desc-editor';const ta=document.createElement('textarea');ta.value=r.desc||'';const save=document.createElement('button');save.type='button';save.textContent='Salvar descrição';const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancelar';edit.addEventListener('click',()=>{ta.value=r.desc||'';editor.classList.add('open');ta.focus()});cancel.addEventListener('click',()=>editor.classList.remove('open'));save.addEventListener('click',()=>{r.desc=ta.value.trim(); if(!r.summary)r.summary=(r.desc.split('\n').find(x=>x.trim())||'').slice(0,220); editor.classList.remove('open');saveState();renderAll()});actions.append(edit);editor.append(ta,save,cancel);const library=renderManualLibrary(r);body.appendChild(txt);if(library)body.appendChild(library);body.append(actions,editor);d.append(sum,body);area.appendChild(d)});detailsEl.appendChild(area)}); }
+function normalizeSearch(value){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').replace(/\s+/g,' ').trim()}
+function validAssignees(sec,r){return Array.from(r.selected).filter(id=>sec.equipe.some(p=>p.id===id))}
+function openRoutineFromUserView(rid){
+  switchView('organogram');
+  requestAnimationFrame(()=>{const card=sectionsEl.querySelector('.card[data-rid="'+CSS.escape(rid)+'"]');if(card){card.scrollIntoView({behavior:'smooth',block:'center'});card.classList.add('view-focus');setTimeout(()=>card.classList.remove('view-focus'),1700)}});
+}
+function appendUserRoutines(cell,entries){
+  if(!entries.length){const empty=document.createElement('span');empty.className='user-empty';empty.textContent='Nenhuma rotina atribuída';cell.appendChild(empty);return}
+  const list=document.createElement('div');list.className='user-routines';
+  entries.forEach(entry=>{const r=entry.routine,sec=entry.sec;const item=document.createElement('div');item.className='user-routine-item';const main=document.createElement('div');main.className='user-routine-main';const area=document.createElement('span');area.className='user-routine-area '+sec.key;area.textContent=sec.titulo;const link=document.createElement('button');link.type='button';link.className='user-routine-link';link.textContent=r.nome;link.title='Localizar no organograma';link.addEventListener('click',()=>openRoutineFromUserView(r.rid));main.append(area,link);const summary=(r.summary||'').trim();if(summary){const small=document.createElement('span');small.className='user-routine-summary';small.textContent=summary;main.appendChild(small)}item.appendChild(main);const manualCount=Array.isArray(r.manualFiles)?r.manualFiles.length:0;if(manualCount){const badge=document.createElement('span');badge.className='user-manual-count';badge.textContent=manualCount+' '+(manualCount===1?'manual':'materiais');item.appendChild(badge)}list.appendChild(item)});
+  cell.appendChild(list);
+}
+function renderUserView(){
+  const search=normalizeSearch(document.getElementById('userSearch').value),team=document.getElementById('teamFilter').value;
+  userTableBody.innerHTML='';
+  const people=new Map();let assignments=0,unassigned=0;
+  secoes.forEach(sec=>{
+    sec.equipe.forEach(person=>{const key=normalizeSearch(person.name);let row=people.get(key);if(!row){row={name:person.name,teams:[],entries:[],empty:false};people.set(key,row)}if(!row.teams.some(teamItem=>teamItem.key===sec.key))row.teams.push(sec);const routines=sec.rotinas.filter(r=>r.selected.has(person.id));assignments+=routines.length;routines.forEach(routine=>row.entries.push({routine,sec}))});
+  });
+  const rows=Array.from(people.values());const unassignedRow={name:'Sem responsável',teams:[],entries:[],empty:true};
+  secoes.forEach(sec=>{const withoutOwner=sec.rotinas.filter(r=>validAssignees(sec,r).length===0);if(withoutOwner.length){unassigned+=withoutOwner.length;unassignedRow.teams.push(sec);withoutOwner.forEach(routine=>unassignedRow.entries.push({routine,sec}))}});
+  if(unassignedRow.entries.length)rows.push(unassignedRow);
+  document.getElementById('userCount').textContent=people.size;
+  document.getElementById('assignmentCount').textContent=assignments;
+  document.getElementById('unassignedCount').textContent=unassigned;
+  let visible=0;
+  rows.forEach(row=>{
+    if(team&&!row.teams.some(sec=>sec.key===team))return;
+    const visibleTeams=team?row.teams.filter(sec=>sec.key===team):row.teams;
+    const teamEntries=team?row.entries.filter(entry=>entry.sec.key===team):row.entries;
+    const nameMatch=normalizeSearch(row.name).includes(search);
+    const matchingEntries=search&&!nameMatch?teamEntries.filter(entry=>normalizeSearch(entry.routine.nome+' '+(entry.routine.summary||'')+' '+entry.sec.titulo).includes(search)):teamEntries;
+    if(search&&!nameMatch&&!matchingEntries.length)return;
+    const tr=document.createElement('tr');
+    const userCell=document.createElement('td');const name=document.createElement('span');name.className='user-name';name.textContent=row.name;userCell.appendChild(name);
+    const teamCell=document.createElement('td');const teamList=document.createElement('div');teamList.className='user-team-list';visibleTeams.forEach(sec=>{const teamBadge=document.createElement('span');teamBadge.className='user-team '+sec.key;teamBadge.textContent=sec.titulo;teamList.appendChild(teamBadge)});teamCell.appendChild(teamList);
+    const routineCell=document.createElement('td');appendUserRoutines(routineCell,matchingEntries);
+    const totalCell=document.createElement('td');totalCell.className='user-total';totalCell.textContent=matchingEntries.length;
+    tr.append(userCell,teamCell,routineCell,totalCell);userTableBody.appendChild(tr);visible++;
+  });
+  if(!visible){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.className='user-table-empty';td.textContent='Nenhum resultado encontrado para os filtros informados.';tr.appendChild(td);userTableBody.appendChild(tr)}
+}
+let currentView='organogram';
+function switchView(view){
+  currentView=view==='user'?'user':'organogram';const showUsers=currentView==='user';
+  closeAllPanels();tooltipHide();
+  organogramView.classList.toggle('active',!showUsers);organogramView.hidden=showUsers;
+  userView.classList.toggle('active',showUsers);userView.hidden=!showUsers;
+  organogramTab.classList.toggle('active',!showUsers);organogramTab.setAttribute('aria-selected',String(!showUsers));
+  userTab.classList.toggle('active',showUsers);userTab.setAttribute('aria-selected',String(showUsers));
+  expandDescriptionsBtn.hidden=showUsers;
+  if(showUsers)renderUserView();
+}
+function renderAll(){tooltipHide();renderSections();setupRoutineDragging();renderDetails();renderUserView();}
+// Inicialização realizada após a autenticação.
+
+organogramTab.addEventListener('click',()=>switchView('organogram'));
+userTab.addEventListener('click',()=>switchView('user'));
+document.getElementById('userSearch').addEventListener('input',renderUserView);
+document.getElementById('teamFilter').addEventListener('change',renderUserView);
+
+
+let expanded=false;document.getElementById('expandDescriptions').addEventListener('click',e=>{expanded=!expanded;document.querySelectorAll('.routine-detail').forEach(d=>d.open=expanded);e.currentTarget.textContent=expanded?'Recolher descrições':'Expandir descrições'});
+</script>
+<script src="hosted.js"></script>
+</body>
+</html>

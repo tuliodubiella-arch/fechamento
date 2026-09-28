@@ -388,7 +388,7 @@ function render() {
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto">${monthOptions()}</select>
     <span class="status-pill ${state.online ? "" : "offline"}">${state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
-    <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
+    <a class="btn compact" href="organograma/">Organograma de rotinas</a><span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     <nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });

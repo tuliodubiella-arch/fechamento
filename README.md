@@ -2,6 +2,10 @@
 
 Painel claro e instalável para a execução mensal das contas por empresa. A interface fica em `https://tuliodubiella-arch.github.io/fechamento/`; autenticação, dados e permissões ficam no projeto Supabase da conta do administrador, separado do painel antigo. Nenhuma informação contábil deve ser publicada no GitHub.
 
+## Organograma de rotinas
+
+O portal também disponibiliza o organograma em `https://tuliodubiella-arch.github.io/fechamento/organograma/`. A página reutiliza a mesma autenticação do Fechamento Contábil e carrega nomes, rotinas, responsáveis e manuais somente após validar um integrante ativo em `fc_members`. Esses dados ficam no registro protegido `org_workspace/main`, sob RLS, e não são incluídos nos arquivos públicos do GitHub.
+
 ## Ativação
 
 1. No projeto Supabase `jbnqgchofaprjjwbuzpe`, execute `supabase/closing_schema.sql` no SQL Editor.

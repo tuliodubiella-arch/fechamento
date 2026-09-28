@@ -1,0 +1,20 @@
+[hidden] { display:none !important; }
+.org-auth-screen { min-height:100vh; display:grid; place-items:center; padding:20px; background:#f8f8f7; font-family:Raleway,Arial,sans-serif; color:#39373a; }
+.org-auth-box { width:min(420px,100%); padding:28px; border:1px solid #e3e5e6; border-radius:18px; background:#fff; box-shadow:0 20px 45px #39373a16; }
+.org-auth-brand { display:flex; flex-direction:column; align-items:flex-start; gap:16px; margin-bottom:20px; }
+.org-auth-brand img { width:156px; height:auto; }
+.org-auth-brand strong { font-size:22px; }
+.org-auth-box h1 { margin:0 0 6px; font-size:23px; }
+.org-auth-box > p { margin:0 0 20px; color:#68676a; font-size:14px; line-height:1.5; }
+.org-auth-box form { display:grid; gap:12px; }
+.org-auth-box label span { display:block; margin-bottom:5px; color:#68676a; font-size:11px; font-weight:700; text-transform:uppercase; }
+.org-auth-box input { width:100%; min-height:40px; padding:8px 10px; border:1px solid #cfd2d4; border-radius:9px; outline:none; font:14px Raleway,Arial,sans-serif; }
+.org-auth-box input:focus { border-color:#f7ae14; box-shadow:0 0 0 3px #f7ae1438; }
+.org-auth-box button { min-height:40px; border:1px solid #39373a; border-radius:9px; background:#39373a; color:#fff; cursor:pointer; font:600 13px Raleway,Arial,sans-serif; }
+.org-auth-box button:hover { background:#504f53; }
+.org-auth-box .org-secondary { width:100%; margin-top:12px; border-color:#d6d8da; background:#fff; color:#39373a; }
+.org-auth-box .org-secondary:hover { background:#f3f3f2; }
+.org-auth-error { margin-top:12px !important; color:#b42318 !important; }
+.portal-link { padding:8px 11px; border:1px solid #d8dee8; border-radius:9px; background:#fff; color:#765000; font-size:12px; font-weight:700; text-decoration:none; }
+.portal-link:hover { border-color:#f7ae14; background:#fff8e8; }
+#orgMember { color:#626166; font-size:11px; font-weight:700; }
