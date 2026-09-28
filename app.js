@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.09.28.1";
+const APP_VERSION = "2026.09.28.2";
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
@@ -240,7 +240,7 @@ function renderExecution() {
       <td>${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
       <td>${badge(statusOf(task))}</td><td class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td>${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td>${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
-      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button>${state.member?.is_admin && activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Corrigir registros</button>` : ""}${state.member?.is_admin ? `<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button>` : ""}</div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
+      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button>${state.member?.is_admin && activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${state.member?.is_admin && activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Corrigir registros</button>` : ""}${state.member?.is_admin ? `<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button>` : ""}</div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
 function renderGoals() {
@@ -358,7 +358,7 @@ function renderVersions() {
     ${state.adminDataError ? `<div class="notice warn">${esc(state.adminDataError)}</div>` : ""}
     <form id="release-form" class="form-grid"><label class="field"><span>Versão</span><input class="input" name="version" value="${esc(APP_VERSION)}" maxlength="40" required></label><label class="field"><span>Título da atualização</span><input class="input" name="title" maxlength="160" required></label><label class="field wide"><span>Descrição das mudanças / manutenção</span><textarea class="input" name="details" rows="5" maxlength="4000" required></textarea></label><button class="btn primary" type="submit" ${state.adminDataError ? "disabled" : ""}>Registrar atualização</button></form>
     <h3 class="section-title" style="margin-top:24px">Histórico de versões</h3><div class="update-list">${notes.length ? notes.map((note) => `<article class="update-entry"><div class="update-heading"><strong>${esc(note.version)} · ${esc(note.title)}</strong><small>${brasilia(note.published_at)}</small></div><p>${esc(note.details).replace(/\n/g, "<br>")}</p><small>Registrado por ${esc(memberName(note.created_by, "Sistema"))}</small></article>`).join("") : '<div class="empty">Nenhuma atualização registrada.</div>'}</div></div></section>
-    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Trilha administrativa dos registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); return `<article class="update-entry"><div class="update-heading"><strong>${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${item.events_affected} registro(s) retirado(s) · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
+    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit"; return `<article class="update-entry"><div class="update-heading"><strong>${timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
 }
 function render() {
   if (!state.session || state.needsPassword) return renderAuth();
@@ -432,6 +432,35 @@ async function resetActivity(taskId, button) {
     await loadData();
     toast("Apontamentos retirados. Os indicadores e a data de entrega foram atualizados.");
   } catch (error) { button.disabled = false; button.textContent = "Corrigir registros"; toast(`Correção não aplicada: ${error.message || error}`); }
+}
+async function editActivityTime(taskId, button) {
+  if (!state.member?.is_admin || isHistorical()) return;
+  if (!state.online || state.queue.length) return toast("Conecte-se e sincronize os registros pendentes antes de editar o tempo.");
+  const task = state.tasks.find((item) => item.id === taskId);
+  const activity = taskState(taskId);
+  if (!task || !activity?.first_started_at) return;
+  if (!["Pausado", "Finalizado"].includes(activity.status)) return toast("Pause ou finalize a tarefa antes de editar seu tempo.");
+  const month = state.month;
+  const previous = duration(activity.total_seconds);
+  const answer = prompt(`Editar tempo · ${task.account} · ${companyName(task.company_id)} · ${monthName(month)}\n\nInforme o tempo TOTAL correto em horas:minutos:segundos (HH:MM:SS):`, previous);
+  if (answer === null) return;
+  const parts = answer.trim().split(":");
+  if (parts.length !== 3 || !/^\d{1,3}$/.test(parts[0]) || !/^[0-5]\d$/.test(parts[1]) || !/^[0-5]\d$/.test(parts[2])) {
+    return toast("Use o formato HH:MM:SS, por exemplo 01:30:00.");
+  }
+  const seconds = Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
+  if (seconds === activity.total_seconds) return toast("O novo tempo é igual ao registrado.");
+  const reason = prompt(`Tempo atual: ${previous}\nNovo tempo: ${duration(seconds)}\n\nInforme o motivo da correção:`);
+  if (reason === null) return;
+  if (reason.trim().length < 8 || reason.trim().length > 500) return toast("Informe um motivo entre 8 e 500 caracteres.");
+  if (!confirm(`Confirmar o ajuste do tempo total de ${previous} para ${duration(seconds)} em ${monthName(month)}? O ajuste e o motivo ficarão registrados em Versões. Os PLAY/PAUSE/STOP originais serão preservados. Peça aos demais usuários que sincronizem apontamentos offline antes de confirmar.`)) return;
+  button.disabled = true; button.textContent = "Salvando…";
+  try {
+    const { error } = await client.rpc("fc_adjust_activity_time", { p_task_id: taskId, p_competence: month, p_new_total_seconds: seconds, p_reason: reason.trim() });
+    if (error) throw error;
+    await loadData();
+    toast("Tempo corrigido. A alteração está registrada em Versões.");
+  } catch (error) { button.disabled = false; button.textContent = "Editar tempo"; toast(`Tempo não alterado: ${error.message || error}`); }
 }
 async function retireTask(taskId, button) {
   if (!state.member?.is_admin || isHistorical()) return;
@@ -600,6 +629,7 @@ document.addEventListener("click", async (event) => {
     if (state.tab === "Cadastros") void loadInviteStatuses();
   }
   else if (action === "activity") act(id, button.dataset.kind);
+  else if (action === "edit-time") await editActivityTime(id, button);
   else if (action === "reset-activity") await resetActivity(id, button);
   else if (action === "retire-task") await retireTask(id, button);
   else if (action === "choose-month") { state.month = button.dataset.month; state.tab = "Execução"; render(); }
