@@ -13,6 +13,8 @@ Painel claro e instalável para a execução mensal das contas por empresa. A in
 
 Para a versão `2026.09.25`, aplique também `supabase/migrations/20260925_admin_corrections_versions.sql` no mesmo projeto antes de publicar os arquivos atualizados do site. A migração adiciona a correção administrativa auditável e o diário de versões; não altera os apontamentos já existentes.
 
+Para a versão `2026.09.28.1`, aplique `supabase/migrations/20260928_task_retirement_admin.sql` antes de publicar a interface. Ela permite retirar uma tarefa a partir da competência selecionada sem apagar meses anteriores e concede perfil de administrador somente mediante ação de outro administrador. A retirada é recusada se a tarefa tiver apontamentos ativos no mês ou depois dele; use a correção administrativa primeiro. Peça aos usuários que sincronizem registros offline antes da retirada.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
@@ -29,5 +31,6 @@ O site atual não é alterado por esta implantação. Na migração, os apontame
 - Os horários de execução e recebimento são mostrados em Brasília/DF. O servidor mantém os instantes em UTC.
 - Em **Execução**, somente o administrador vê **Corrigir registros** nas rotinas com apontamentos. A ação exige conexão, motivo e confirmação; retira todos os eventos daquela rotina no mês selecionado dos tempos e indicadores, sem apagar a trilha de auditoria. Dispositivos com registros offline pendentes devem sincronizar antes de uma correção.
 - Em **Versões**, somente o administrador consulta a trilha de correções e registra manutenções e atualizações do portal.
+- Em **Execução**, o administrador pode excluir uma tarefa do mês selecionado e dos seguintes, com motivo, mantendo os fechamentos anteriores. Em **Cadastros**, pode promover um responsável ativo a administrador; o novo perfil acessa todas as telas.
 - Em **Metas**, **Imprimir lista / PDF** gera uma lista compacta de cinco colunas (ordem, empresa, prioridade, dia útil e previsão) em A4 vertical; a exportação XLSX continua com as informações completas.
 - Os dias úteis excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi de 2026 e feriados adicionais cadastrados no painel. Confirme feriados locais de anos futuros no cadastro.

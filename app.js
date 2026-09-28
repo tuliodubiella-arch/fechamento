@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.09.28";
+const APP_VERSION = "2026.09.28.1";
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
@@ -172,9 +172,14 @@ function receiptFor(companyId, department) {
 }
 function isHistorical() { return state.month < legacyCutoff; }
 function ownerFor(taskId, competence = state.month) { return state.owners.find((item) => item.task_id === taskId && item.competence === competence); }
+function taskInMonth(task, competence = state.month) {
+  return (task.created_competence || legacyCutoff) <= competence
+    && (task.active || Boolean(task.retired_competence))
+    && (!task.retired_competence || competence < task.retired_competence);
+}
 function monthlyTasks() {
   if (isHistorical()) return state.history.filter((item) => item.competence === state.month).map((item) => ({ ...item, company_name: item.company, owner_name: item.owner_name, historic: true }));
-  return state.tasks.filter((item) => item.active && (item.created_competence || legacyCutoff) <= state.month).map((item) => {
+  return state.tasks.filter((item) => taskInMonth(item)).map((item) => {
     const owner = ownerFor(item.id);
     return { ...item, responsible_id: owner?.responsible_id || null, responsible_legacy_name: owner?.responsible_legacy_name || null,
       company_name: companyName(item.company_id), owner_name: memberName(owner?.responsible_id, owner?.responsible_legacy_name) };
@@ -235,7 +240,7 @@ function renderExecution() {
       <td>${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
       <td>${badge(statusOf(task))}</td><td class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td>${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td>${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
-      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button>${state.member?.is_admin && activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Corrigir registros</button>` : ""}</div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
+      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button>${state.member?.is_admin && activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Corrigir registros</button>` : ""}${state.member?.is_admin ? `<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button>` : ""}</div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
 function renderGoals() {
@@ -336,7 +341,7 @@ function renderRegistry() {
       const pending = state.invitePendingIds.includes(person.id);
       const accessStatus = person.is_admin ? "· administrador" : state.member?.is_admin && state.inviteStatus === "ready"
         ? pending ? "· convite pendente" : "· convite aceito ou acesso existente" : "";
-      return `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${accessStatus}</small></div>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>${person.is_admin ? "" : `<button class="btn compact" data-action="resend-invite" data-id="${esc(person.id)}" aria-label="Reenviar convite para ${esc(person.name)}" ${pending ? "" : `disabled title="Disponível somente para convites ainda não aceitos"`}>Reenviar convite</button>`}<button class="btn compact danger" data-action="delete-member" data-id="${esc(person.id)}" ${person.id === state.member.id ? "disabled" : ""}>Excluir</button></div>` : ""}</div>`;
+      return `<div class="list-row"><div><input class="input" data-member-name="${esc(person.id)}" value="${esc(person.name)}" ${state.member?.is_admin ? "" : "disabled"}><small>${esc(person.email)} ${accessStatus}</small></div>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="member-name" data-id="${esc(person.id)}">Salvar</button>${person.is_admin ? "" : `<button class="btn compact" data-action="resend-invite" data-id="${esc(person.id)}" aria-label="Reenviar convite para ${esc(person.name)}" ${pending ? "" : `disabled title="Disponível somente para convites ainda não aceitos"`}>Reenviar convite</button><button class="btn compact" data-action="promote-member" data-id="${esc(person.id)}" title="Conceder acesso administrativo a todas as telas">Tornar administrador</button>`}<button class="btn compact danger" data-action="delete-member" data-id="${esc(person.id)}" ${person.id === state.member.id ? "disabled" : ""}>Excluir</button></div>` : ""}</div>`;
     }).join("")}</div>
     <h3 class="section-title" style="margin-top:22px">Pré-cadastrados sem acesso</h3><p class="muted">Ao convidar com o mesmo nome, as rotinas são vinculadas à conta.</p><div class="list">${legacyOwners.map((name) => `<div class="list-row"><input class="input" data-legacy-name="${esc(name)}" value="${esc(name)}" ${state.member?.is_admin ? "" : "disabled"}>${state.member?.is_admin ? `<div class="actions"><button class="btn compact" data-action="legacy-name" data-old="${esc(name)}">Salvar</button><button class="btn compact danger" data-action="delete-legacy" data-old="${esc(name)}">Excluir</button></div>` : ""}</div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Empresas</h2></div><div class="panel-body"><p class="notice warn">Um novo cadastro deverá respeitar o nome da empresa conforme o cartão de CNPJ</p><form id="company-form" class="form-grid"><label class="field wide"><span>Nome da empresa</span><input class="input" name="name" required></label><label class="field"><span>Prioridade inicial</span><select class="select" name="category"><option>DEMAIS</option><option>HOLDING</option></select></label><button class="btn primary" type="submit">Incluir empresa</button></form>
@@ -388,7 +393,7 @@ function saveGoal(companyId, values) {
 function act(taskId, action) {
   if (isHistorical()) return;
   const task = state.tasks.find((item) => item.id === taskId);
-  if (!task) return;
+  if (!task || !taskInMonth(task)) return;
   const now = new Date().toISOString();
   const previous = taskState(taskId) || { task_id: taskId, competence: state.month, status: "Não iniciado", total_seconds: 0 };
   if (action === "play" && previous.status === "Em andamento") return;
@@ -399,7 +404,7 @@ function act(taskId, action) {
     started_at: action === "play" ? now : null, first_started_at: previous.first_started_at || (action === "play" ? now : null),
     finished_at: action === "stop" ? now : null, updated_at: now, last_actor_id: state.member.id };
   changeLocal("states", row, ["task_id", "competence"]);
-  const companyTasks = state.tasks.filter((item) => item.company_id === task.company_id && item.active && (item.created_competence || legacyCutoff) <= state.month);
+  const companyTasks = state.tasks.filter((item) => item.company_id === task.company_id && taskInMonth(item));
   let goal = state.targets.find((item) => item.company_id === task.company_id && item.competence === state.month);
   if (!goal) {
     goal = targetFor(state.companies.find((item) => item.id === task.company_id));
@@ -427,6 +432,38 @@ async function resetActivity(taskId, button) {
     await loadData();
     toast("Apontamentos retirados. Os indicadores e a data de entrega foram atualizados.");
   } catch (error) { button.disabled = false; button.textContent = "Corrigir registros"; toast(`Correção não aplicada: ${error.message || error}`); }
+}
+async function retireTask(taskId, button) {
+  if (!state.member?.is_admin || isHistorical()) return;
+  if (!state.online || state.queue.length) return toast("Conecte-se e sincronize os registros pendentes antes de excluir uma tarefa.");
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task || !taskInMonth(task)) return;
+  const month = state.month;
+  const reason = prompt(`Excluir tarefa · ${task.account} · ${companyName(task.company_id)}\n\nA tarefa deixará de aparecer em ${monthName(month)} e nos meses seguintes. Os meses anteriores serão preservados. Informe o motivo:`);
+  if (reason === null) return;
+  if (reason.trim().length < 8 || reason.trim().length > 500) return toast("Informe um motivo entre 8 e 500 caracteres.");
+  if (!confirm(`Confirmar a exclusão de ${task.account} a partir de ${monthName(month)}? Se houver apontamentos neste mês, corrija-os primeiro. Peça que os demais usuários sincronizem registros offline antes de continuar.`)) return;
+  button.disabled = true; button.textContent = "Excluindo…";
+  try {
+    const { error } = await client.rpc("fc_retire_task", { p_task_id: taskId, p_competence: month, p_reason: reason.trim() });
+    if (error) throw error;
+    await loadData();
+    toast("Tarefa retirada deste mês e dos próximos. Os meses anteriores foram preservados.");
+  } catch (error) { button.disabled = false; button.textContent = "Excluir tarefa"; toast(`Tarefa não excluída: ${error.message || error}`); }
+}
+async function promoteMember(memberId, button) {
+  if (!state.member?.is_admin) return;
+  if (!state.online) return toast("Conecte-se à internet para alterar o perfil de acesso.");
+  const person = state.members.find((item) => item.id === memberId && item.active);
+  if (!person || person.is_admin) return;
+  if (!confirm(`Tornar ${person.name} administrador(a)? Este perfil acessará todas as telas e poderá alterar cadastros, corrigir apontamentos, excluir tarefas e conceder acesso administrativo a outros responsáveis.`)) return;
+  button.disabled = true; button.textContent = "Atualizando…";
+  try {
+    const { error } = await client.rpc("fc_promote_member", { p_member_id: memberId });
+    if (error) throw error;
+    await loadData();
+    toast(`${person.name} agora tem acesso de administrador(a).`);
+  } catch (error) { button.disabled = false; button.textContent = "Tornar administrador"; toast(`Perfil não alterado: ${error.message || error}`); }
 }
 async function inviteRequest(body) {
   const { data, error } = await client.functions.invoke("fc-invite-member", { body });
@@ -564,7 +601,9 @@ document.addEventListener("click", async (event) => {
   }
   else if (action === "activity") act(id, button.dataset.kind);
   else if (action === "reset-activity") await resetActivity(id, button);
+  else if (action === "retire-task") await retireTask(id, button);
   else if (action === "choose-month") { state.month = button.dataset.month; state.tab = "Execução"; render(); }
+  else if (action === "promote-member") await promoteMember(id, button);
   else if (action === "resend-invite") {
     if (!state.online) return toast("O reenvio exige conexão com a internet.");
     const person = state.members.find((item) => item.id === id);
