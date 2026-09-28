@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.09.28.4";
+const APP_VERSION = "2026.09.28.5";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -228,9 +228,8 @@ function renderPanel() {
 function renderExecution() {
   const tasks = monthlyTasks().filter((item) => {
     const text = `${item.account} ${item.group_name || ""} ${item.company_name} ${item.owner_name}`.toLocaleLowerCase("pt-BR");
-    const status = statusOf(item) === "Concluída" ? "Finalizado" : statusOf(item);
     return text.includes(state.query.toLocaleLowerCase("pt-BR")) && (!state.companyFilter || item.company_id === state.companyFilter)
-      && (!state.ownerFilter || item.responsible_id === state.ownerFilter) && (!state.statusFilters.length || state.statusFilters.includes(status));
+      && (!state.ownerFilter || item.responsible_id === state.ownerFilter);
   });
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const statusLabel = state.statusFilters.length ? state.statusFilters.length === 1 ? state.statusFilters[0] : `${state.statusFilters.length} status selecionados` : "Todos os status";
@@ -239,13 +238,27 @@ function renderExecution() {
     <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
     <details id="status-filter" class="status-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="status-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos</button></div></details></div>
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
-    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); return `<tr><td><strong>${esc(task.account)}</strong><small>${esc(task.group_name || "")}</small></td><td>${esc(task.company_name)}</td>
+    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); return `<tr data-execution-status="${esc(filterStatus)}"><td><strong>${esc(task.account)}</strong><small>${esc(task.group_name || "")}</small></td><td>${esc(task.company_name)}</td>
       <td>${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
       <td>${badge(statusOf(task))}</td><td class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td>${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td>${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
       <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
-      <td>${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table>${tasks.length ? "" : '<div class="empty">Nenhuma atividade neste filtro.</div>'}</div>
+      <td>${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
+}
+function applyStatusFilter() {
+  const filter = $("#status-filter"); if (!filter) return;
+  const selected = state.statusFilters;
+  filter.querySelector("summary").textContent = selected.length ? selected.length === 1 ? selected[0] : `${selected.length} status selecionados` : "Todos os status";
+  filter.querySelector('[data-action="clear-status-filter"]').disabled = !selected.length;
+  let visible = 0;
+  document.querySelectorAll("[data-execution-status]").forEach((row) => {
+    const match = !selected.length || selected.includes(row.dataset.executionStatus);
+    row.classList.toggle("hidden", !match);
+    if (match) visible++;
+  });
+  $(".execution-empty").hidden = visible > 0;
+  $(".footer-note").textContent = `${visible} atividade(s). Os horários são apresentados no fuso de Brasília/DF.`;
 }
 function renderGoals() {
   const companies = orderedGoals();
@@ -371,7 +384,6 @@ function render() {
     $("#app").innerHTML = `<div class="auth-screen"><div class="auth-box"><h1>Acesso pendente</h1><p>${esc(state.error || "Peça ao administrador para liberar seu e-mail.")}</p><button class="btn" data-action="logout">Sair</button></div></div>`;
     return;
   }
-  const statusFilterOpen = !!$("#status-filter")?.open && state.tab === "Execução";
   const content = state.tab === "Painel" ? renderPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Versões" ? renderVersions() : renderRegistry();
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto">${monthOptions()}</select>
@@ -380,7 +392,7 @@ function render() {
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     <nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
-  if (statusFilterOpen && $("#status-filter")) $("#status-filter").open = true;
+  if (state.tab === "Execução") applyStatusFilter();
 }
 function changeLocal(table, row, keys) {
   const array = state[table];
@@ -601,8 +613,10 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   const element = event.target;
   if (element.matches("[data-status-filter]")) {
-    state.statusFilters = executionStatuses.filter((status) => document.querySelector(`[data-status-filter="${status}"]`)?.checked);
-    render(); return;
+    const status = element.dataset.statusFilter;
+    state.statusFilters = element.checked ? [...state.statusFilters, status] : state.statusFilters.filter((item) => item !== status);
+    state.statusFilters = executionStatuses.filter((item) => state.statusFilters.includes(item));
+    applyStatusFilter(); return;
   }
   if (element.id === "month") { state.month = element.value; state.query = ""; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
@@ -631,7 +645,7 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
-  if (action === "clear-status-filter") { state.statusFilters = []; render(); return; }
+  if (action === "clear-status-filter") { state.statusFilters = []; document.querySelectorAll("[data-status-filter]").forEach((input) => { input.checked = false; }); applyStatusFilter(); return; }
   if (action === "tab") {
     state.tab = button.dataset.tab;
     if (state.tab === "Versões" && !state.member?.is_admin) state.tab = "Painel";
