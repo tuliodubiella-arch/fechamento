@@ -82,9 +82,10 @@ document.getElementById('orgLogout').addEventListener('click', async () => {
 document.getElementById('orgImport').addEventListener('click', async () => {
   if (!orgCurrentMember?.is_admin || !orgCurrentUserId) return showAuthMessage('Somente um administrador pode realizar a carga inicial.');
   const file = document.getElementById('orgSeedFile').files[0];
-  if (!file) return showAuthMessage('Selecione o arquivo JSON da carga inicial.');
+  const text = document.getElementById('orgSeedText').value.trim();
+  if (!file && !text) return showAuthMessage('Selecione o arquivo JSON ou cole o conteúdo da carga inicial.');
   try {
-    const payload = JSON.parse(await file.text());
+    const payload = JSON.parse(file ? await file.text() : text);
     if (!payload?.contabil?.rotinas || !payload?.fiscal?.rotinas) throw new Error('Arquivo de carga inválido.');
     showAuthMessage('Importando dados protegidos…');
     const { error } = await orgClient.from('org_workspace').insert({ id:'main', payload, updated_at:new Date().toISOString(), updated_by:orgCurrentUserId });

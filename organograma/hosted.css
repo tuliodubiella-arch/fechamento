@@ -10,6 +10,10 @@
 .org-auth-box label span { display:block; margin-bottom:5px; color:#68676a; font-size:11px; font-weight:700; text-transform:uppercase; }
 .org-auth-box input { width:100%; min-height:40px; padding:8px 10px; border:1px solid #cfd2d4; border-radius:9px; outline:none; font:14px Raleway,Arial,sans-serif; }
 .org-auth-box input:focus { border-color:#f7ae14; box-shadow:0 0 0 3px #f7ae1438; }
+.org-import-alternative { margin:10px 0; color:#68676a; font-size:12px; }
+.org-import-alternative summary { cursor:pointer; font-weight:700; }
+.org-import-alternative textarea { width:100%; margin-top:8px; padding:9px 10px; resize:vertical; border:1px solid #cfd2d4; border-radius:9px; outline:none; font:12px Consolas,monospace; }
+.org-import-alternative textarea:focus { border-color:#f7ae14; box-shadow:0 0 0 3px #f7ae1438; }
 .org-auth-box button { min-height:40px; border:1px solid #39373a; border-radius:9px; background:#39373a; color:#fff; cursor:pointer; font:600 13px Raleway,Arial,sans-serif; }
 .org-auth-box button:hover { background:#504f53; }
 .org-auth-box .org-secondary { width:100%; margin-top:12px; border-color:#d6d8da; background:#fff; color:#39373a; }
