@@ -108,7 +108,7 @@ function mergeLocalAssignments(localPayload) {
     const currentSection = merged[key];
     if (!currentSection || !Array.isArray(localSection?.rotinas)) continue;
     const localTeam = Array.isArray(localSection.equipe) ? localSection.equipe.filter(Boolean) : [];
-    currentSection.equipe = [...new Set([...localTeam, ...(currentSection.equipe || [])])];
+    if (localTeam.length) currentSection.equipe = [...new Set(localTeam)];
     const currentByRid = new Map(currentSection.rotinas.map(routine => [routine.rid, routine]));
     for (const localRoutine of localSection.rotinas) {
       if (!localRoutine?.rid) continue;
