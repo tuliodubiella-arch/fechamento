@@ -224,6 +224,7 @@ function renderOrgMembers() {
 
 document.getElementById('orgMemberForm').addEventListener('submit', async event => {
   event.preventDefault();
+  const form = event.currentTarget;
   if (!orgCurrentMember?.is_admin) return;
   const status = document.getElementById('orgMemberStatus');
   const name = document.getElementById('orgMemberName').value.trim();
@@ -239,7 +240,7 @@ document.getElementById('orgMemberForm').addEventListener('submit', async event 
       const { error: promoteError } = await orgClient.rpc('fc_promote_member', { p_member_id: created.id });
       if (promoteError) throw promoteError;
     }
-    event.currentTarget.reset();
+    form.reset();
     status.textContent = makeAdmin ? 'Convite de administrador enviado.' : 'Convite de visualização enviado.';
     await loadOrgMembers();
   } catch (error) { status.textContent = error.message || String(error); }
