@@ -577,7 +577,7 @@ const OLD_STORAGE_KEY='cavalca_organograma_state_v1';
 let secoes=[];
 function buildFromState(state){
   secoes=Object.entries(state||{}).map(([key,stored])=>{
-    const equipe=(stored.equipe||[]).map(makePerson);
+    const equipe=[...new Set((stored.equipe||[]).map(nome=>String(nome||'').trim()).filter(Boolean))].map(makePerson);
     const rotinas=(stored.rotinas||[]).map(sr=>{
       const r={rid:sr.rid||makeRid(key),nome:sr.nome||'(sem nome)',desc:sr.desc||'',summary:sr.summary||'',manualFiles:Array.isArray(sr.manualFiles)?sr.manualFiles:[],manualVersion:Number(sr.manualVersion)||0,destaque:!!sr.destaque,cor:sr.cor||'',selected:new Set(),_dom:{}};
       (sr.selected||[]).forEach(personName=>{const person=equipe.find(p=>p.name===personName);if(person)r.selected.add(person.id)});
