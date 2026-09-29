@@ -23,11 +23,11 @@ Para a versão `2026.09.28.1`, aplique `supabase/migrations/20260928_task_retire
 
 Para a versão `2026.09.28.2`, aplique `supabase/migrations/20260928_admin_time_edits.sql` antes de publicar a interface. A edição administrativa do tempo total exige que a tarefa esteja pausada ou finalizada, conexão, motivo e confirmação. Cada ajuste fica no histórico de correções com o valor anterior e o novo valor; os eventos PLAY/PAUSE/STOP originais são preservados.
 
-## Endereço e convites personalizados
+## Endereço e convites
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
 - Após publicar o novo repositório e validar HTTPS, publique a função `fc-invite-member` com o redirecionamento novo e configure **Site URL** e **Redirect URLs** em **Authentication → URL Configuration** no Supabase. Mantenha a URL antiga na lista de redirecionamento durante a transição. Teste login e convite antes de divulgar o endereço novo.
-- O projeto Supabase Free criado após junho de 2026 exige SMTP próprio para editar os modelos de e-mail. Use um serviço de envio autorizado pela empresa e configure-o em **Authentication → Emails → SMTP Settings**, com remetente no domínio verificado. Depois, em **Templates → Invite user**, use o assunto `Convite para o Portal de Fechamento Contábil | Grupo Cavalca` e o conteúdo de `supabase/templates/invite-user.html`. Não salve senhas SMTP ou chaves de API no repositório.
+- O projeto utiliza o serviço de e-mail padrão do Supabase e o modelo padrão de convite em inglês. Não configure SMTP personalizado nem modelos próprios sem validar previamente o provedor de envio.
 
 O site atual não é alterado por esta implantação. Na migração, os apontamentos de teste de setembro/2026 são omitidos e os apontamentos reais de outubro/2026 são preservados.
 
