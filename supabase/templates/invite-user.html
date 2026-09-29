@@ -3,40 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Convite de acesso | Portais Grupo Cavalca</title>
+  <title>Convite para o Portal de Fechamento Contábil</title>
 </head>
-<body style="margin:0;padding:0;background:#f3f4f4;font-family:Arial,Helvetica,sans-serif;color:#39373a;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f4;">
+<body style="margin:0;padding:32px 12px;background:#f8f8f7;color:#39373a;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e3e5e6;border-radius:12px;">
     <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #e3e5e6;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px rgba(57,55,58,.10);">
-          <tr><td style="height:7px;background:#f7ae14;font-size:0;line-height:0;">&nbsp;</td></tr>
-          <tr>
-            <td align="center" style="padding:30px 32px 22px;background:#ffffff;">
-              <img src="https://tuliodubiella-arch.github.io/fechamento/brand/logo-principal.png" width="230" alt="Grupo Cavalca" style="display:block;width:230px;max-width:100%;height:auto;border:0;">
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:0 42px 34px;">
-              <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#765000;font-weight:700;text-transform:uppercase;letter-spacing:.7px;">Convite de acesso</p>
-              <h1 style="margin:0 0 18px;font-size:28px;line-height:1.25;color:#39373a;">Seu acesso aos Portais Grupo Cavalca está disponível</h1>
-              <p style="margin:0 0 14px;font-size:16px;line-height:1.65;color:#504f53;">Olá,</p>
-              <p style="margin:0 0 24px;font-size:16px;line-height:1.65;color:#504f53;">Você foi convidado para acessar o <strong>Portal de Fechamento Contábil e o Organograma de Rotinas do Grupo Cavalca</strong>. Use o botão abaixo para confirmar seu cadastro e definir a senha do primeiro acesso.</p>
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 26px;">
-                <tr><td align="center" bgcolor="#f7ae14" style="border-radius:9px;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:15px 28px;color:#39373a;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.2px;">ACEITAR CONVITE E CRIAR SENHA</a></td></tr>
-              </table>
-              <div style="padding:18px 20px;background:#f8f8f7;border-left:4px solid #f7ae14;border-radius:8px;">
-                <p style="margin:0 0 6px;font-size:14px;line-height:1.55;color:#39373a;font-weight:700;">Sua segurança é importante</p>
-                <p style="margin:0;font-size:13px;line-height:1.55;color:#504f53;">Este convite foi gerado após o cadastro do seu e-mail por um administrador dos portais. Não compartilhe este link. Se você não reconhece o convite, ignore esta mensagem e confirme a solicitação com seu gestor.</p>
-              </div>
-              <p style="margin:24px 0 0;font-size:13px;line-height:1.55;color:#77757a;">Se o botão não abrir, copie e cole este endereço no navegador:<br><a href="{{ .ConfirmationURL }}" style="color:#765000;word-break:break-all;">{{ .ConfirmationURL }}</a></p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 32px;background:#39373a;text-align:center;"><p style="margin:0;color:#ffffff;font-size:12px;line-height:1.6;">Grupo Cavalca · Portais de Fechamento e Rotinas<br>Mensagem automática de acesso institucional.</p></td>
-          </tr>
-        </table>
+      <td style="padding:28px 32px;background:#39373a;border-radius:12px 12px 0 0;color:#ffffff;">
+        <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#f7ae14;font-weight:bold;">Grupo Cavalca</div>
+        <div style="padding-top:10px;font-size:24px;line-height:1.25;font-weight:bold;">Portal de Fechamento Contábil</div>
       </td>
+    </tr>
+    <tr>
+      <td style="padding:32px;font-size:16px;line-height:1.6;">
+        <p style="margin:0 0 18px;">Olá,</p>
+        <p style="margin:0 0 18px;">Você foi convidado(a) a se cadastrar no novo Portal de Acompanhamento do Fechamento Contábil do Grupo Cavalca.</p>
+        <p style="margin:0 0 26px;">No portal, os responsáveis acompanham as rotinas de fechamento, registram o andamento das conciliações e consultam as metas de cada empresa.</p>
+        <p style="margin:0 0 26px;">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 22px;border-radius:8px;background:#f7ae14;color:#39373a;text-decoration:none;font-weight:bold;">Aceitar convite e definir senha</a>
+        </p>
+        <p style="margin:0 0 18px;font-size:14px;">Se o botão não abrir, copie e cole este endereço no navegador:<br>
+          <a href="{{ .ConfirmationURL }}" style="color:#765000;word-break:break-all;">{{ .ConfirmationURL }}</a>
+        </p>
+        <p style="margin:0;color:#68676a;font-size:14px;">Se você não esperava este convite, pode ignorar esta mensagem. Não compartilhe o link nem sua senha.</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:18px 32px;border-top:1px solid #e3e5e6;color:#68676a;font-size:13px;">Grupo Cavalca · Fechamento Contábil</td>
     </tr>
   </table>
 </body>
