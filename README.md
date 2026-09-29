@@ -6,6 +6,8 @@ Painel claro e instalável para a execução mensal das contas por empresa. A in
 
 O portal também disponibiliza o organograma em `https://tuliodubiella-arch.github.io/fechamento/organograma/`. A página reutiliza a mesma autenticação do Fechamento Contábil e carrega nomes, rotinas, responsáveis e manuais somente após validar um integrante ativo em `fc_members`. Esses dados ficam no registro protegido `org_workspace/main`, sob RLS, e não são incluídos nos arquivos públicos do GitHub.
 
+No organograma, administradores possuem a aba **Usuários de acesso** para enviar convites e escolher entre os perfis Administrador e Somente visualização. A migração `supabase/migrations/20260929_organogram_access_roles.sql` restringe alterações do organograma a administradores; usuários de visualização mantêm acesso de leitura às rotinas e manuais.
+
 ## Ativação
 
 1. No projeto Supabase `jbnqgchofaprjjwbuzpe`, execute `supabase/closing_schema.sql` no SQL Editor.

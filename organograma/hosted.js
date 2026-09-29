@@ -3,6 +3,7 @@ const ORG_SUPABASE_KEY = 'sb_publishable_jjy5twY8P1oroKyMgF5A_g_loODauqr';
 const orgClient = window.supabase.createClient(ORG_SUPABASE_URL, ORG_SUPABASE_KEY);
 let orgCurrentUserId = null;
 let orgCurrentMember = null;
+let orgMembers = [];
 
 const accessGate = document.getElementById('accessGate');
 const protectedApp = document.getElementById('protectedApp');
@@ -36,6 +37,7 @@ async function openProtectedOrganogram(session) {
   orgCurrentUserId = session.user.id;
   orgCurrentMember = member;
   document.getElementById('orgSyncTools').hidden = !member.is_admin;
+  document.getElementById('membersTab').hidden = !member.is_admin;
   const { data: workspace, error: workspaceError } = await orgClient.from('org_workspace').select('payload').eq('id', 'main').maybeSingle();
   if (workspaceError) {
     showAuthMessage('Não foi possível carregar as rotinas protegidas. Tente novamente.');
@@ -53,6 +55,16 @@ async function openProtectedOrganogram(session) {
   accessGate.hidden = true;
   protectedApp.hidden = false;
   renderAll();
+  applyOrgAccessMode();
+}
+
+function applyOrgAccessMode() {
+  const readOnly = !orgCurrentMember?.is_admin;
+  protectedApp.classList.toggle('org-readonly', readOnly);
+  protectedApp.querySelectorAll('#sections [contenteditable],#detailsContainer [contenteditable]').forEach(element => element.contentEditable = readOnly ? 'false' : 'true');
+  protectedApp.querySelectorAll('#sections input,#detailsContainer textarea').forEach(element => element.disabled = readOnly);
+  protectedApp.querySelectorAll('[draggable="true"]').forEach(element => { if (readOnly) element.draggable = false; });
+  document.getElementById('saveStatus').textContent = readOnly ? 'Perfil de visualização · alterações bloqueadas' : 'Alterações são salvas automaticamente';
 }
 
 document.getElementById('orgLogin').addEventListener('submit', async (event) => {
@@ -156,6 +168,81 @@ document.getElementById('orgSyncApply').addEventListener('click', async () => {
   } catch (error) {
     status.textContent = error.message || String(error);
   }
+});
+
+async function orgInviteRequest(body) {
+  const { data, error } = await orgClient.functions.invoke('fc-invite-member', { body });
+  if (error || !data?.ok) {
+    let detail = data?.error;
+    if (!detail && error?.context?.json) {
+      try { detail = (await error.context.json())?.error; } catch { /* resposta sem JSON */ }
+    }
+    throw new Error(detail || error?.message || 'Serviço de convites indisponível.');
+  }
+  return data;
+}
+
+async function loadOrgMembers() {
+  if (!orgCurrentMember?.is_admin) return;
+  const status = document.getElementById('orgMemberStatus');
+  status.textContent = 'Carregando usuários…';
+  const { data, error } = await orgClient.from('fc_members').select('id,name,email,active,is_admin').order('name');
+  if (error) { status.textContent = error.message || String(error); return; }
+  orgMembers = data || [];
+  status.textContent = '';
+  renderOrgMembers();
+}
+
+function renderOrgMembers() {
+  if (!orgCurrentMember?.is_admin) return;
+  const body = document.getElementById('orgMembersBody');
+  body.innerHTML = '';
+  if (!orgMembers.length) { void loadOrgMembers(); return; }
+  for (const member of orgMembers) {
+    const row = document.createElement('tr');
+    const name = document.createElement('td'); name.textContent = member.name || 'Sem nome';
+    const email = document.createElement('td'); email.textContent = member.email || '—';
+    const roleCell = document.createElement('td');
+    const role = document.createElement('select'); role.className = 'org-role-select'; role.dataset.memberId = member.id;
+    role.innerHTML = '<option value="viewer">Somente visualização</option><option value="admin">Administrador</option>';
+    role.value = member.is_admin ? 'admin' : 'viewer';
+    role.disabled = member.id === orgCurrentUserId;
+    role.addEventListener('change', async () => {
+      const desiredAdmin = role.value === 'admin';
+      role.disabled = true;
+      const status = document.getElementById('orgMemberStatus'); status.textContent = 'Atualizando perfil…';
+      const { error } = await orgClient.rpc('fc_set_member_role', { p_member_id: member.id, p_is_admin: desiredAdmin });
+      if (error) { role.value = member.is_admin ? 'admin' : 'viewer'; status.textContent = error.message || String(error); }
+      else { member.is_admin = desiredAdmin; status.textContent = 'Perfil atualizado com sucesso.'; }
+      role.disabled = member.id === orgCurrentUserId;
+    });
+    roleCell.appendChild(role);
+    const active = document.createElement('td'); const pill = document.createElement('span'); pill.className = 'org-status-pill' + (member.active ? '' : ' inactive'); pill.textContent = member.active ? 'Ativo' : 'Inativo'; active.appendChild(pill);
+    row.append(name,email,roleCell,active); body.appendChild(row);
+  }
+}
+
+document.getElementById('orgMemberForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!orgCurrentMember?.is_admin) return;
+  const status = document.getElementById('orgMemberStatus');
+  const name = document.getElementById('orgMemberName').value.trim();
+  const email = document.getElementById('orgMemberEmail').value.trim().toLowerCase();
+  const makeAdmin = document.getElementById('orgMemberRole').value === 'admin';
+  if (!name || !email) return status.textContent = 'Informe nome e e-mail válidos.';
+  status.textContent = 'Enviando convite…';
+  try {
+    await orgInviteRequest({ email, name });
+    if (makeAdmin) {
+      const { data: created, error: lookupError } = await orgClient.from('fc_members').select('id').eq('email', email).maybeSingle();
+      if (lookupError || !created) throw lookupError || new Error('Usuário convidado não localizado.');
+      const { error: promoteError } = await orgClient.rpc('fc_promote_member', { p_member_id: created.id });
+      if (promoteError) throw promoteError;
+    }
+    event.currentTarget.reset();
+    status.textContent = makeAdmin ? 'Convite de administrador enviado.' : 'Convite de visualização enviado.';
+    await loadOrgMembers();
+  } catch (error) { status.textContent = error.message || String(error); }
 });
 
 orgClient.auth.onAuthStateChange((event, session) => {

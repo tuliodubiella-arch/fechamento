@@ -527,6 +527,7 @@
   <div class="view-switch" role="tablist" aria-label="Escolher visualização">
     <button id="organogramTab" class="active" type="button" role="tab" aria-selected="true" aria-controls="organogramView">Organograma</button>
     <button id="userTab" type="button" role="tab" aria-selected="false" aria-controls="userView">Rotinas por usuário</button>
+    <button id="membersTab" type="button" role="tab" aria-selected="false" aria-controls="membersView" hidden>Usuários de acesso</button>
   </div>
   <button id="expandDescriptions">Expandir descrições</button>
   <details id="orgSyncTools" class="org-sync-tools" hidden><summary>Importar painel local</summary><div class="org-sync-panel"><textarea id="orgSyncText" rows="4" spellcheck="false" placeholder="Cole a configuração copiada do painel local"></textarea><button id="orgSyncApply" type="button">Aplicar atribuições</button><span id="orgSyncStatus"></span></div></details>
@@ -551,6 +552,12 @@
   <div class="user-table-wrap">
     <table class="user-table"><thead><tr><th scope="col">Usuário</th><th scope="col">Equipe</th><th scope="col">Rotinas atribuídas</th><th scope="col">Total</th></tr></thead><tbody id="userTableBody"></tbody></table>
   </div>
+</section>
+<section id="membersView" class="view-page org-members-view" role="tabpanel" aria-labelledby="membersTab" hidden>
+  <div class="user-view-header"><div><h2 class="user-view-title">USUÁRIOS DE ACESSO</h2><p class="user-view-intro">Convide usuários e defina o perfil de acesso ao portal.</p></div></div>
+  <form id="orgMemberForm" class="org-member-form"><label>Nome<input id="orgMemberName" required maxlength="120"></label><label>E-mail<input id="orgMemberEmail" type="email" required></label><label>Perfil<select id="orgMemberRole"><option value="viewer">Somente visualização</option><option value="admin">Administrador</option></select></label><button type="submit">Enviar convite</button></form>
+  <p id="orgMemberStatus" class="org-member-status" role="status"></p>
+  <div class="user-table-wrap"><table class="user-table"><thead><tr><th>Usuário</th><th>E-mail</th><th>Perfil</th><th>Status</th></tr></thead><tbody id="orgMembersBody"></tbody></table></div>
 </section>
 </div>
 <div id="routineTooltip" role="tooltip"><div class="tip-hint">Passe o cursor para esta janela e role para ler o conteúdo completo.</div><h3 id="tipTitle"></h3><div id="tipBody" class="tip-body"></div></div>
@@ -587,15 +594,15 @@ async function persistRemoteState(){
   const status=document.getElementById('saveStatus');
   try{const {error}=await orgClient.from('org_workspace').update({payload:serializeState(),updated_at:new Date().toISOString(),updated_by:orgCurrentUserId}).eq('id','main');if(error)throw error;status.textContent='Salvo às '+new Date().toLocaleTimeString('pt-BR');status.style.opacity='1'}catch(error){status.textContent='Falha ao salvar · tente novamente';status.style.opacity='1';console.error(error)}
 }
-function saveState(){const status=document.getElementById('saveStatus');status.textContent='Salvando…';status.style.opacity='1';clearTimeout(saveState._t);saveState._t=setTimeout(persistRemoteState,500)}
+function saveState(){if(!orgCurrentMember?.is_admin)return;const status=document.getElementById('saveStatus');status.textContent='Salvando…';status.style.opacity='1';clearTimeout(saveState._t);saveState._t=setTimeout(persistRemoteState,500)}
 function closeAllPanels(except){document.querySelectorAll('.resp-panel.open').forEach(p=>{if(p!==except){p.classList.remove('open');const card=p.closest('.card');if(card)card.classList.remove('panel-open');const btn=card&&card.querySelector('.resp-btn');if(btn)btn.setAttribute('aria-expanded','false')}})}
 document.addEventListener('click',()=>closeAllPanels());
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAllPanels()});
 
 const sectionsEl=document.getElementById('sections');
 const detailsEl=document.getElementById('detailsContainer');
-const organogramView=document.getElementById('organogramView'),userView=document.getElementById('userView'),userTableBody=document.getElementById('userTableBody');
-const organogramTab=document.getElementById('organogramTab'),userTab=document.getElementById('userTab'),expandDescriptionsBtn=document.getElementById('expandDescriptions');
+const organogramView=document.getElementById('organogramView'),userView=document.getElementById('userView'),membersView=document.getElementById('membersView'),userTableBody=document.getElementById('userTableBody');
+const organogramTab=document.getElementById('organogramTab'),userTab=document.getElementById('userTab'),membersTab=document.getElementById('membersTab'),expandDescriptionsBtn=document.getElementById('expandDescriptions');
 const tip=document.getElementById('routineTooltip'), tipTitle=document.getElementById('tipTitle'), tipBody=document.getElementById('tipBody');
 let tooltipHideTimer=null;
 function tooltipShow(e,r){ clearTimeout(tooltipHideTimer); tipTitle.textContent=r.nome||'(sem nome)'; tipBody.textContent=(r.desc||'').trim()||'Descrição ainda não cadastrada. Use “Editar descrição” na seção completa abaixo.'; tipBody.classList.toggle('tip-empty',!(r.desc||'').trim()); tip.classList.add('visible'); tooltipPosition(e.currentTarget); }
@@ -743,20 +750,24 @@ function renderUserView(){
 }
 let currentView='organogram';
 function switchView(view){
-  currentView=view==='user'?'user':'organogram';const showUsers=currentView==='user';
+  currentView=view==='members'?'members':(view==='user'?'user':'organogram');const showUsers=currentView==='user',showMembers=currentView==='members',showOrganogram=currentView==='organogram';
   closeAllPanels();tooltipHide();
-  organogramView.classList.toggle('active',!showUsers);organogramView.hidden=showUsers;
+  organogramView.classList.toggle('active',showOrganogram);organogramView.hidden=!showOrganogram;
   userView.classList.toggle('active',showUsers);userView.hidden=!showUsers;
-  organogramTab.classList.toggle('active',!showUsers);organogramTab.setAttribute('aria-selected',String(!showUsers));
+  membersView.classList.toggle('active',showMembers);membersView.hidden=!showMembers;
+  organogramTab.classList.toggle('active',showOrganogram);organogramTab.setAttribute('aria-selected',String(showOrganogram));
   userTab.classList.toggle('active',showUsers);userTab.setAttribute('aria-selected',String(showUsers));
-  expandDescriptionsBtn.hidden=showUsers;
+  membersTab.classList.toggle('active',showMembers);membersTab.setAttribute('aria-selected',String(showMembers));
+  expandDescriptionsBtn.hidden=!showOrganogram;
   if(showUsers)renderUserView();
+  if(showMembers&&typeof renderOrgMembers==='function')renderOrgMembers();
 }
-function renderAll(){tooltipHide();renderSections();setupRoutineDragging();renderDetails();renderUserView();}
+function renderAll(){tooltipHide();renderSections();setupRoutineDragging();renderDetails();renderUserView();if(typeof applyOrgAccessMode==='function')applyOrgAccessMode();}
 // Inicialização realizada após a autenticação.
 
 organogramTab.addEventListener('click',()=>switchView('organogram'));
 userTab.addEventListener('click',()=>switchView('user'));
+membersTab.addEventListener('click',()=>switchView('members'));
 document.getElementById('userSearch').addEventListener('input',renderUserView);
 document.getElementById('teamFilter').addEventListener('change',renderUserView);
 

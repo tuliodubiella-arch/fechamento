@@ -29,3 +29,15 @@
 .org-sync-panel textarea { width:100%; padding:9px; resize:vertical; border:1px solid #cfd2d4; border-radius:8px; font:11px Consolas,monospace; }
 .org-sync-panel button { width:100%; margin-top:8px; }
 #orgSyncStatus { display:block; margin-top:7px; color:#68676a; font-size:11px; line-height:1.35; }
+.org-members-view { padding:0 28px 40px; }
+.org-member-form { display:grid; grid-template-columns:1fr 1.25fr .8fr auto; gap:12px; align-items:end; margin:18px 0; padding:18px; border:1px solid #e3e5e6; border-radius:14px; background:#fff; box-shadow:0 12px 28px #39373a0d; }
+.org-member-form label { color:#68676a; font-size:11px; font-weight:700; text-transform:uppercase; }
+.org-member-form input,.org-member-form select { width:100%; min-height:40px; margin-top:5px; padding:8px 10px; border:1px solid #cfd2d4; border-radius:9px; background:#fff; font:14px Raleway,Arial,sans-serif; }
+.org-member-form button { min-height:40px; }
+.org-member-status { min-height:20px; color:#68676a; font-size:12px; }
+.org-role-select { min-width:170px; padding:7px 9px; border:1px solid #cfd2d4; border-radius:8px; background:#fff; }
+.org-status-pill { display:inline-flex; padding:4px 8px; border-radius:999px; background:#eaf7ee; color:#207a3b; font-size:11px; font-weight:800; }
+.org-status-pill.inactive { background:#f4f4f4; color:#777; }
+.org-readonly .section-add,.org-readonly .color-tools,.org-readonly .delete-routine,.org-readonly .drag-handle,.org-readonly .roster button,.org-readonly .resp-wrap,.org-readonly #orgSyncTools { display:none !important; }
+.org-readonly [contenteditable="true"] { pointer-events:none; }
+@media(max-width:850px){.org-member-form{grid-template-columns:1fr}.org-members-view{padding:0 14px 30px}}
