@@ -35,6 +35,7 @@ async function openProtectedOrganogram(session) {
   }
   orgCurrentUserId = session.user.id;
   orgCurrentMember = member;
+  document.getElementById('orgSyncTools').hidden = !member.is_admin;
   const { data: workspace, error: workspaceError } = await orgClient.from('org_workspace').select('payload').eq('id', 'main').maybeSingle();
   if (workspaceError) {
     showAuthMessage('Não foi possível carregar as rotinas protegidas. Tente novamente.');
@@ -98,6 +99,62 @@ document.getElementById('orgImport').addEventListener('click', async () => {
     renderAll();
   } catch (error) {
     showAuthMessage(error.message || String(error));
+  }
+});
+
+function mergeLocalAssignments(localPayload) {
+  const merged = serializeState();
+  for (const [key, localSection] of Object.entries(localPayload || {})) {
+    const currentSection = merged[key];
+    if (!currentSection || !Array.isArray(localSection?.rotinas)) continue;
+    const localTeam = Array.isArray(localSection.equipe) ? localSection.equipe.filter(Boolean) : [];
+    currentSection.equipe = [...new Set([...localTeam, ...(currentSection.equipe || [])])];
+    const currentByRid = new Map(currentSection.rotinas.map(routine => [routine.rid, routine]));
+    for (const localRoutine of localSection.rotinas) {
+      if (!localRoutine?.rid) continue;
+      const currentRoutine = currentByRid.get(localRoutine.rid);
+      if (currentRoutine) {
+        currentRoutine.selected = Array.isArray(localRoutine.selected) ? localRoutine.selected.filter(Boolean) : [];
+        if (typeof localRoutine.nome === 'string' && localRoutine.nome.trim()) currentRoutine.nome = localRoutine.nome.trim();
+        if (typeof localRoutine.cor === 'string') currentRoutine.cor = localRoutine.cor;
+        currentRoutine.destaque = Boolean(localRoutine.destaque);
+      } else {
+        currentSection.rotinas.push({
+          rid: localRoutine.rid,
+          nome: localRoutine.nome || '(sem nome)',
+          desc: localRoutine.desc || '',
+          summary: localRoutine.summary || '',
+          manualFiles: [],
+          manualVersion: Number(localRoutine.manualVersion) || 0,
+          destaque: Boolean(localRoutine.destaque),
+          cor: localRoutine.cor || '',
+          selected: Array.isArray(localRoutine.selected) ? localRoutine.selected.filter(Boolean) : [],
+        });
+      }
+    }
+  }
+  return merged;
+}
+
+document.getElementById('orgSyncApply').addEventListener('click', async () => {
+  const status = document.getElementById('orgSyncStatus');
+  if (!orgCurrentMember?.is_admin || !orgCurrentUserId) return status.textContent = 'Somente um administrador pode aplicar a configuração local.';
+  const text = document.getElementById('orgSyncText').value.trim();
+  if (!text) return status.textContent = 'Cole primeiro a configuração copiada do painel local.';
+  try {
+    const localPayload = JSON.parse(text);
+    if (!localPayload?.contabil?.rotinas || !localPayload?.fiscal?.rotinas) throw new Error('Configuração local inválida.');
+    const merged = mergeLocalAssignments(localPayload);
+    status.textContent = 'Aplicando responsáveis e personalizações…';
+    const { error } = await orgClient.from('org_workspace').update({ payload:merged, updated_at:new Date().toISOString(), updated_by:orgCurrentUserId }).eq('id','main');
+    if (error) throw error;
+    buildFromState(merged);
+    renderAll();
+    document.getElementById('orgSyncText').value = '';
+    document.getElementById('orgSyncTools').open = false;
+    status.textContent = 'Configuração local aplicada com sucesso.';
+  } catch (error) {
+    status.textContent = error.message || String(error);
   }
 });
 

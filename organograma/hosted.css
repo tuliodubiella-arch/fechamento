@@ -22,3 +22,10 @@
 .portal-link { padding:8px 11px; border:1px solid #d8dee8; border-radius:9px; background:#fff; color:#765000; font-size:12px; font-weight:700; text-decoration:none; }
 .portal-link:hover { border-color:#f7ae14; background:#fff8e8; }
 #orgMember { color:#626166; font-size:11px; font-weight:700; }
+.org-sync-tools { position:relative; }
+.org-sync-tools summary { padding:8px 11px; border:1px solid #d8dee8; border-radius:9px; background:#fff; color:#39373a; cursor:pointer; font-size:12px; font-weight:700; list-style:none; }
+.org-sync-tools summary::-webkit-details-marker { display:none; }
+.org-sync-panel { position:absolute; z-index:1000; top:calc(100% + 8px); right:0; width:min(420px,85vw); padding:12px; border:1px solid #d8dee8; border-radius:12px; background:#fff; box-shadow:0 18px 38px #39373a26; }
+.org-sync-panel textarea { width:100%; padding:9px; resize:vertical; border:1px solid #cfd2d4; border-radius:8px; font:11px Consolas,monospace; }
+.org-sync-panel button { width:100%; margin-top:8px; }
+#orgSyncStatus { display:block; margin-top:7px; color:#68676a; font-size:11px; line-height:1.35; }
