@@ -8,10 +8,11 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.3";
+const APP_VERSION = "2026.10.01.4";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
+const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel", month: "2026-09", query: "",
@@ -76,6 +77,7 @@ function plannedDate(month, businessDay) {
 const cacheKey = () => `fc_cache_${state.session?.user?.id || "anonymous"}`;
 const queueKey = () => `fc_queue_${state.session?.user?.id || "anonymous"}`;
 const recoveryKey = () => `fc_recovery_hold_${state.session?.user?.id || "anonymous"}`;
+const recoveryErrorKey = () => `fc_recovery_error_${state.session?.user?.id || "anonymous"}`;
 const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
@@ -91,6 +93,7 @@ function loadCache() {
     state.recoveryHold = state.queue.length > 0 && (localStorage.getItem(recoveryKey()) === "1" || state.queue.some(isLegacyTaskWrite));
     if (state.recoveryHold) localStorage.setItem(recoveryKey(), "1");
     else localStorage.removeItem(recoveryKey());
+    state.syncError = state.recoveryHold ? localStorage.getItem(recoveryErrorKey()) || "" : "";
     state.recoveryApproved = false;
     state.recoveryBackupRequested = false;
     state.recoveryBackupConfirmed = false;
@@ -140,6 +143,7 @@ async function flush() {
     }
     if (state.recoveryHold) {
       localStorage.removeItem(recoveryKey());
+      localStorage.removeItem(recoveryErrorKey());
       state.recoveryHold = false;
       state.recoveryApproved = false;
       state.recoveryBackupRequested = false;
@@ -149,6 +153,12 @@ async function flush() {
     await loadData();
   } catch (error) {
     state.syncError = error.message || String(error);
+    if (state.queue.length && (error.status ? error.status >= 400 && error.status < 500 : Boolean(error.code))) {
+      state.recoveryHold = true;
+      state.recoveryApproved = false;
+      localStorage.setItem(recoveryKey(), "1");
+      localStorage.setItem(recoveryErrorKey(), state.syncError);
+    }
     toast(`Sincronização pendente: ${state.syncError}`);
   }
   finally { flushing = false; if (state.recoveryHold) state.recoveryApproved = false; render(); }
@@ -189,6 +199,7 @@ async function loadData() {
     } else { state.releaseNotes = []; state.corrections = []; state.adminDataError = ""; }
     state.error = state.member ? "" : "Seu acesso ao fechamento ainda não foi liberado pelo administrador.";
     state.ready = true; saveCache(); render();
+    if (state.queue.length) void flush();
     if (state.receiptFeatureReady) void syncReceiptPending();
   } catch (error) {
     state.error = `Não foi possível carregar os dados: ${error.message || error}. Se a migração ainda não foi aplicada, aguarde a configuração.`;
@@ -240,7 +251,7 @@ function renderAuth() {
     ${passwordForm ? '<label class="field"><span>Confirmar senha</span><input class="input" name="confirm" type="password" minlength="8" autocomplete="new-password" required></label>' : ""}
     <button class="btn primary" type="submit">${passwordForm ? "Definir senha" : "Entrar"}</button></form>
     ${passwordForm ? "" : '<button class="btn" style="margin-top:12px;width:100%" data-action="forgot-password">Esqueci minha senha</button>'}
-    <p id="auth-error" style="color:#b91c1c;margin-top:12px"></p></div></div>`;
+    <p id="auth-error" style="color:#b91c1c;margin-top:12px">${expiredAuthLink && !passwordForm ? "O link de convite ou recuperação expirou. Entre com sua senha ou peça um novo link ao administrador." : ""}</p></div></div>`;
 }
 function renderPanel() {
   const items = monthlyTasks();
@@ -432,7 +443,7 @@ function renderRecoveryPanel() {
   const records = state.queue.map(pendingDescription);
   const actions = records.filter((item) => ["PLAY", "PAUSE", "STOP"].includes(item.action)).length;
   return `<section class="panel recovery-panel" aria-label="Recuperação dos registros pendentes"><div class="panel-head"><div><h2>Recuperar registros pendentes</h2><p>${state.queue.length} operação(ões) neste navegador, incluindo ${actions} apontamento(s) de tempo.</p></div><span class="badge paused">Envio automático pausado</span></div>
-    <div class="panel-body"><p>Uma inclusão de rotina anterior foi recusada pelo servidor e bloqueou os registros seguintes. Confira a lista, baixe uma cópia de segurança neste aparelho e só então autorize o envio. Não limpe os dados do site nem troque de navegador.</p>
+    <div class="panel-body"><p>${state.queue.some(isLegacyTaskWrite) ? "Uma inclusão de rotina anterior foi recusada pelo servidor." : "O servidor recusou a primeira operação pendente."} Os registros seguintes estão preservados neste navegador. Confira a lista, baixe uma cópia de segurança e solicite a análise do administrador antes de tentar novamente. Não limpe os dados do site nem troque de navegador.</p>
     ${state.syncError ? `<div class="notice warn">Última falha: ${esc(state.syncError)}</div>` : ""}
     <div class="recovery-actions"><button class="btn" data-action="download-queue">Baixar cópia da fila (JSON)</button><label><input type="checkbox" id="queue-backup-confirm" ${state.recoveryBackupConfirmed ? "checked" : ""} ${state.recoveryBackupRequested ? "" : "disabled"}> Confirme que o arquivo foi salvo neste aparelho</label><button class="btn primary" data-action="sync-queue" ${!state.online || !state.recoveryBackupConfirmed || flushing ? "disabled" : ""}>Sincronizar após revisão</button></div>
     <small class="muted">A cópia contém informações das rotinas. Guarde-a em local restrito e não a publique no GitHub.</small>
@@ -815,7 +826,7 @@ document.addEventListener("click", async (event) => {
     toast(error ? error.message : "Se o e-mail estiver cadastrado, você receberá instruções para redefinir a senha.");
   } else if (action === "logout") {
     if (state.queue.length) return toast("Há registros pendentes. Sincronize antes de sair para não perdê-los.");
-    localStorage.removeItem(cacheKey()); localStorage.removeItem(queueKey()); localStorage.removeItem(recoveryKey());
+    localStorage.removeItem(cacheKey()); localStorage.removeItem(queueKey()); localStorage.removeItem(recoveryKey()); localStorage.removeItem(recoveryErrorKey());
     await client.auth.signOut(); state.session = null; state.member = null; state.ready = false; render();
   }
 });
@@ -834,6 +845,7 @@ client.auth.onAuthStateChange((_event, session) => {
 (async () => {
   const { data } = await client.auth.getSession();
   state.session = data.session;
+  if (expiredAuthLink) history.replaceState(null, "", location.pathname + location.search);
   if (state.session) { loadCache(); await loadData(); }
   else renderAuth();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

@@ -69,6 +69,28 @@ test("erro interrompe o envio e conserva o restante da fila", async () => {
   assert.equal(vm.runInContext("state.recoveryApproved", context), false);
 });
 
+test("erro de regra no primeiro apontamento pausa a fila do usuário sem apagar os demais", async () => {
+  const pending = [
+    { kind: "rpc", name: "fc_apply_activity", args: { p_action: "pause", p_competence: "2026-09" } },
+    ...Array.from({ length: 11 }, () => ({ kind: "rpc", name: "fc_apply_activity", args: { p_action: "stop", p_competence: "2026-09" } })),
+  ];
+  const { context, storage, calls, userId } = setup(pending, { rpc: () => ({ error: { code: "P0001", message: "A rotina não está em andamento" } }) });
+  await vm.runInContext("flush()", context);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 12);
+  assert.equal(storage.get(`fc_recovery_hold_${userId}`), "1");
+  assert.equal(storage.get(`fc_recovery_error_${userId}`), "A rotina não está em andamento");
+  await vm.runInContext("flush()", context);
+  assert.deepEqual(calls, [["rpc", "fc_apply_activity", "pause"]]);
+});
+
+test("falha de rede mantém tentativa futura sem entrar em revisão", async () => {
+  const pending = [{ kind: "rpc", name: "fc_apply_activity", args: { p_action: "play" } }];
+  const { context, storage, userId } = setup(pending, { rpc: () => ({ error: { message: "Failed to fetch" } }) });
+  await vm.runInContext("flush()", context);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 1);
+  assert.equal(storage.has(`fc_recovery_hold_${userId}`), false);
+});
+
 test("inclusão já recebida pelo servidor não duplica a rotina", async () => {
   const { context, calls, storage, userId } = setup(queue, { insert: () => ({ error: { code: "23505" } }), existing: { data: task, error: null } });
   await vm.runInContext("state.recoveryApproved = true; flush()", context);
