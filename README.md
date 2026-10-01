@@ -19,6 +19,8 @@ Para a versão `2026.09.28.2`, aplique `supabase/migrations/20260928_admin_time_
 
 Para a versão `2026.10.01.2`, aplique `supabase/migrations/20261001_receipt_evidence_organogram_admin.sql`. A migração mantém os recebimentos anteriores, cria o histórico de entregas parciais/completas e um bucket privado para prints, além de restringir toda a leitura do organograma aos administradores. O texto reconhecido por OCR não é enviado nem salvo; cada usuário confirma a data e hora sugeridas antes de registrar.
 
+A versão `2026.10.01.3` não exige migração do banco. Ela reconhece filas antigas com inclusão de rotina bloqueada por falta de permissão de UPDATE e pausa o envio automático dessas filas. No **mesmo navegador e perfil** em que os apontamentos foram feitos, o usuário deve revisar a lista, baixar o JSON de segurança, confirmar que o arquivo foi salvo e só então clicar em **Sincronizar após revisão**. O arquivo contém dados das rotinas e deve ficar em local restrito; nunca enviá-lo ao repositório público. O envio para no primeiro erro, preservando as operações restantes. Não limpe os dados do site enquanto houver pendências. Rotinas novas passam a usar INSERT idempotente, sem ampliar permissões da tabela.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.

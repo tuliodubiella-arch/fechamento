@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.2";
+const APP_VERSION = "2026.10.01.3";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -17,6 +17,7 @@ const state = {
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
+  recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
   invitePendingIds: [], inviteStatus: "idle",
   historyLoaded: false,
 };
@@ -74,6 +75,8 @@ function plannedDate(month, businessDay) {
 }
 const cacheKey = () => `fc_cache_${state.session?.user?.id || "anonymous"}`;
 const queueKey = () => `fc_queue_${state.session?.user?.id || "anonymous"}`;
+const recoveryKey = () => `fc_recovery_hold_${state.session?.user?.id || "anonymous"}`;
+const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
   const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections"].map((key) => [key, state[key]]));
@@ -85,6 +88,12 @@ function loadCache() {
     if (data) for (const key of Object.keys(data)) if (key in state) state[key] = data[key];
     state.historyLoaded = Boolean(data && Object.hasOwn(data, "history"));
     state.queue = JSON.parse(localStorage.getItem(queueKey()) || "[]");
+    state.recoveryHold = state.queue.length > 0 && (localStorage.getItem(recoveryKey()) === "1" || state.queue.some(isLegacyTaskWrite));
+    if (state.recoveryHold) localStorage.setItem(recoveryKey(), "1");
+    else localStorage.removeItem(recoveryKey());
+    state.recoveryApproved = false;
+    state.recoveryBackupRequested = false;
+    state.recoveryBackupConfirmed = false;
     state.member = state.members.find((person) => person.id === state.session?.user?.id && person.active) || null;
     state.ready = Boolean(data);
   } catch { /* Sem cache legível neste aparelho. */ }
@@ -92,18 +101,33 @@ function loadCache() {
 function enqueue(item) {
   state.queue.push(item);
   localStorage.setItem(queueKey(), JSON.stringify(state.queue));
+  if (isLegacyTaskWrite(item)) {
+    state.recoveryHold = true;
+    state.recoveryApproved = false;
+    localStorage.setItem(recoveryKey(), "1");
+  }
   saveCache(); render();
-  toast(state.online ? "Registro salvo; sincronizando…" : "Registro salvo neste aparelho; sincronizará quando voltar a conexão.");
+  toast(state.recoveryHold ? "Registro guardado neste aparelho. Revise a fila antes de sincronizar." : state.online ? "Registro salvo; sincronizando…" : "Registro salvo neste aparelho; sincronizará quando voltar a conexão.");
   void flush();
 }
+async function insertNewTask(row) {
+  const result = await client.from("fc_tasks").insert(row);
+  if (result.error?.code !== "23505") return result;
+  // Se o servidor gravou a inclusão mas a resposta se perdeu, a repetição é segura.
+  const existing = await client.from("fc_tasks").select("*").eq("id", row.id).maybeSingle();
+  if (existing.error || !existing.data) return result;
+  const fields = ["id", "company_id", "account", "group_name", "responsible_id", "responsible_legacy_name", "created_competence", "active"];
+  return fields.every((key) => (existing.data[key] ?? null) === (row[key] ?? null)) ? { error: null } : result;
+}
 async function flush() {
-  if (!state.online || !state.member || flushing) return;
+  if (!state.online || !state.member || flushing || (state.recoveryHold && !state.recoveryApproved)) return;
   flushing = true;
   try {
     while (state.queue.length) {
       const item = state.queue[0];
       let result;
       if (item.kind === "rpc") result = await client.rpc(item.name, item.args);
+      else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
       else if (item.kind === "update") {
         let query = client.from(item.table).update(item.values);
@@ -114,9 +138,20 @@ async function flush() {
       state.queue.shift();
       localStorage.setItem(queueKey(), JSON.stringify(state.queue));
     }
+    if (state.recoveryHold) {
+      localStorage.removeItem(recoveryKey());
+      state.recoveryHold = false;
+      state.recoveryApproved = false;
+      state.recoveryBackupRequested = false;
+      state.recoveryBackupConfirmed = false;
+    }
+    state.syncError = "";
     await loadData();
-  } catch (error) { toast(`Sincronização pendente: ${error.message || error}`); }
-  finally { flushing = false; render(); }
+  } catch (error) {
+    state.syncError = error.message || String(error);
+    toast(`Sincronização pendente: ${state.syncError}`);
+  }
+  finally { flushing = false; if (state.recoveryHold) state.recoveryApproved = false; render(); }
 }
 async function allRows(table) {
   const rows = [];
@@ -382,6 +417,43 @@ function renderVersions() {
     <h3 class="section-title" style="margin-top:24px">Histórico de versões</h3><div class="update-list">${notes.length ? notes.map((note) => `<article class="update-entry"><div class="update-heading"><strong>${esc(note.version)} · ${esc(note.title)}</strong><small>${brasilia(note.published_at)}</small></div><p>${esc(note.details).replace(/\n/g, "<br>")}</p><small>Registrado por ${esc(memberName(note.created_by, "Sistema"))}</small></article>`).join("") : '<div class="empty">Nenhuma atualização registrada.</div>'}</div></div></section>
     <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit"; return `<article class="update-entry"><div class="update-heading"><strong>${timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
 }
+function pendingDescription(item) {
+  const taskId = item.args?.p_task_id || item.row?.task_id || item.where?.task_id || (item.table === "fc_tasks" ? item.row?.id : null);
+  const task = state.tasks.find((row) => row.id === taskId) || state.queue.find((row) => (row.kind === "insert" || isLegacyTaskWrite(row)) && row.table === "fc_tasks" && row.row?.id === taskId)?.row;
+  const companyId = task?.company_id || item.row?.company_id || item.where?.company_id;
+  const company = state.companies.find((row) => row.id === companyId) || state.queue.find((row) => row.table === "fc_companies" && row.row?.id === companyId)?.row;
+  const action = item.kind === "rpc" && item.name === "fc_apply_activity"
+    ? ({ play: "PLAY", pause: "PAUSE", stop: "STOP" })[item.args?.p_action] || "Apontamento"
+    : item.table === "fc_tasks" && (item.kind === "insert" || isLegacyTaskWrite(item)) ? "Inclusão de rotina"
+      : item.kind === "update" ? "Alteração de cadastro" : "Cadastro / ajuste";
+  return { action, target: [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro", month: item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : "—" };
+}
+function renderRecoveryPanel() {
+  const records = state.queue.map(pendingDescription);
+  const actions = records.filter((item) => ["PLAY", "PAUSE", "STOP"].includes(item.action)).length;
+  return `<section class="panel recovery-panel" aria-label="Recuperação dos registros pendentes"><div class="panel-head"><div><h2>Recuperar registros pendentes</h2><p>${state.queue.length} operação(ões) neste navegador, incluindo ${actions} apontamento(s) de tempo.</p></div><span class="badge paused">Envio automático pausado</span></div>
+    <div class="panel-body"><p>Uma inclusão de rotina anterior foi recusada pelo servidor e bloqueou os registros seguintes. Confira a lista, baixe uma cópia de segurança neste aparelho e só então autorize o envio. Não limpe os dados do site nem troque de navegador.</p>
+    ${state.syncError ? `<div class="notice warn">Última falha: ${esc(state.syncError)}</div>` : ""}
+    <div class="recovery-actions"><button class="btn" data-action="download-queue">Baixar cópia da fila (JSON)</button><label><input type="checkbox" id="queue-backup-confirm" ${state.recoveryBackupConfirmed ? "checked" : ""} ${state.recoveryBackupRequested ? "" : "disabled"}> Confirme que o arquivo foi salvo neste aparelho</label><button class="btn primary" data-action="sync-queue" ${!state.online || !state.recoveryBackupConfirmed || flushing ? "disabled" : ""}>Sincronizar após revisão</button></div>
+    <small class="muted">A cópia contém informações das rotinas. Guarde-a em local restrito e não a publique no GitHub.</small>
+    <details class="recovery-details" open><summary>Revisar ${records.length} operação(ões)</summary><div class="table-wrap"><table><thead><tr><th>#</th><th>Ação</th><th>Rotina / empresa</th><th>Competência</th><th>Horário · Brasília</th></tr></thead><tbody>${records.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.action)}</td><td>${esc(item.target)}</td><td>${esc(item.month)}</td><td>${esc(item.time)}</td></tr>`).join("")}</tbody></table></div></details></div></section>`;
+}
+function downloadQueueBackup() {
+  if (!state.recoveryHold || !state.queue.length || !state.session) return;
+  const saved = JSON.parse(localStorage.getItem(queueKey()) || "[]");
+  if (!Array.isArray(saved) || saved.length !== state.queue.length) return toast("A fila mudou. Recarregue a página e tente novamente.");
+  const backup = { format: "fc-pending-queue-v1", exported_at: new Date().toISOString(), user_id: state.session.user.id, count: saved.length, queue: saved };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `fechamento-pendencias-${new Date().toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" }).replace(/[ :]/g, "-")}.json`;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  state.recoveryBackupRequested = true;
+  render();
+  toast("Download solicitado. Confirme que o arquivo apareceu no aparelho antes de sincronizar.");
+}
 function render() {
   if (!state.session || state.needsPassword) return renderAuth();
   if (!state.ready) { $("#app").innerHTML = '<div class="loading">Carregando dados protegidos…</div>'; return; }
@@ -390,12 +462,13 @@ function render() {
     return;
   }
   const content = state.tab === "Painel" ? renderPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Versões" ? renderVersions() : renderRegistry();
+  const recovering = state.recoveryHold && state.queue.length > 0;
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
-    <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto">${monthOptions()}</select>
-    <span class="status-pill ${state.online ? "" : "offline"}">${state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
-    <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
+    <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
+    <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
+    <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
-    <nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
+    ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div></main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyStatusFilter();
 }
@@ -584,14 +657,14 @@ document.addEventListener("submit", async (event) => {
       const goal = { company_id: id, competence: state.month, category, sort_order: state.targets.length + 1, business_day: null, planned_date: null, delivery_at: null };
       state.targets.push(goal); enqueue({ kind: "upsert", table: "fc_targets", row: goal, conflict: "company_id,competence" });
       const review = { id: `review-${id}`, company_id: id, account: "REVISÃO DE BALANCETE", group_name: "ENCERRAMENTO", responsible_id: null, responsible_legacy_name: null, created_competence: state.month, active: true };
-      state.tasks.push(review); enqueue({ kind: "upsert", table: "fc_tasks", row: review, conflict: "id" });
+      state.tasks.push(review); enqueue({ kind: "insert", table: "fc_tasks", row: review });
       form.reset(); toast("Empresa e revisão cadastradas."); render();
     } else if (form.id === "task-form") {
       const company_id = field(form, "company_id").value, account = field(form, "account").value.trim();
       if (!company_id || !account) throw new Error("Informe empresa e rotina.");
       if (isHistorical()) throw new Error("Não é possível incluir rotinas em meses históricos.");
       const row = { id: uid(), company_id, account, group_name: field(form, "group_name").value.trim() || "OUTROS", responsible_id: null, responsible_legacy_name: null, created_competence: state.month, active: true };
-      state.tasks.push(row); enqueue({ kind: "upsert", table: "fc_tasks", row, conflict: "id" });
+      state.tasks.push(row); enqueue({ kind: "insert", table: "fc_tasks", row });
       const goal = state.targets.find((item) => item.company_id === company_id && item.competence === state.month);
       if (goal?.delivery_at) saveGoal(company_id, { delivery_at: null });
       form.reset(); toast("Rotina cadastrada."); render();
@@ -617,6 +690,7 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
+  if (element.id === "queue-backup-confirm") { state.recoveryBackupConfirmed = element.checked && state.recoveryBackupRequested; render(); return; }
   if (element.matches("[data-status-filter]")) {
     const status = element.dataset.statusFilter;
     state.statusFilters = element.checked ? [...state.statusFilters, status] : state.statusFilters.filter((item) => item !== status);
@@ -644,6 +718,12 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
+  if (action === "download-queue") { downloadQueueBackup(); return; }
+  if (action === "sync-queue") {
+    if (!state.recoveryHold || !state.recoveryBackupRequested || !state.recoveryBackupConfirmed || !state.online) return;
+    if (!confirm(`Confirma que revisou as ${state.queue.length} operações pendentes e salvou a cópia de segurança? Elas serão enviadas na ordem original. Em caso de erro, o envio será interrompido.`)) return;
+    state.recoveryApproved = true; state.syncError = ""; render(); await flush(); return;
+  }
   if (action === "clear-status-filter") { state.statusFilters = []; document.querySelectorAll("[data-status-filter]").forEach((input) => { input.checked = false; }); applyStatusFilter(); return; }
   if (action === "tab") {
     state.tab = button.dataset.tab;
@@ -735,7 +815,7 @@ document.addEventListener("click", async (event) => {
     toast(error ? error.message : "Se o e-mail estiver cadastrado, você receberá instruções para redefinir a senha.");
   } else if (action === "logout") {
     if (state.queue.length) return toast("Há registros pendentes. Sincronize antes de sair para não perdê-los.");
-    localStorage.removeItem(cacheKey()); localStorage.removeItem(queueKey());
+    localStorage.removeItem(cacheKey()); localStorage.removeItem(queueKey()); localStorage.removeItem(recoveryKey());
     await client.auth.signOut(); state.session = null; state.member = null; state.ready = false; render();
   }
 });
