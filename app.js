@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.4";
+const APP_VERSION = "2026.10.01.5";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -162,6 +162,33 @@ async function flush() {
     toast(`Sincronização pendente: ${state.syncError}`);
   }
   finally { flushing = false; if (state.recoveryHold) state.recoveryApproved = false; render(); }
+}
+const isDuplicatePauseBlocked = () => {
+  const item = state.queue[0];
+  return state.recoveryHold && /rotina não está em andamento/i.test(state.syncError)
+    && item?.kind === "rpc" && item.name === "fc_apply_activity"
+    && item.args?.p_action === "pause" && Boolean(item.args?.p_event_id);
+};
+async function skipDuplicatePause() {
+  if (!state.online || !state.member || !state.recoveryBackupRequested || !state.recoveryBackupConfirmed || !isDuplicatePauseBlocked() || flushing) return;
+  const item = state.queue[0], details = pendingDescription(item);
+  if (!confirm(`Ignorar SOMENTE este PAUSE pendente de ${details.target}, ${details.time}?\n\nFaça isso apenas se foi um clique repetido e não houve trabalho adicional após o PAUSE já gravado. A ação será auditada, nenhum tempo no servidor será alterado e os outros itens permanecerão na fila.`)) return;
+  const saved = JSON.parse(localStorage.getItem(queueKey()) || "[]");
+  if (!Array.isArray(saved) || saved[0]?.args?.p_event_id !== item.args.p_event_id || saved.length !== state.queue.length) return toast("A fila mudou. Recarregue e baixe uma nova cópia antes de continuar.");
+  const { error } = await client.rpc("fc_skip_duplicate_pending_pause", {
+    p_event_id: item.args.p_event_id, p_task_id: item.args.p_task_id,
+    p_competence: item.args.p_competence, p_occurred_at: item.args.p_occurred_at,
+  });
+  if (error) return toast(`PAUSE não retirado: ${error.message}`);
+  if (state.queue[0]?.args?.p_event_id !== item.args.p_event_id) return toast("A fila mudou durante a verificação. Recarregue para conferir.");
+  state.queue.shift();
+  localStorage.setItem(queueKey(), JSON.stringify(state.queue));
+  localStorage.removeItem(recoveryErrorKey());
+  state.syncError = "";
+  state.recoveryBackupRequested = false;
+  state.recoveryBackupConfirmed = false;
+  render();
+  toast("PAUSE repetido retirado e auditado. Os demais registros estão preservados; baixe uma nova cópia antes de sincronizar.");
 }
 async function allRows(table) {
   const rows = [];
@@ -426,7 +453,7 @@ function renderVersions() {
     ${state.adminDataError ? `<div class="notice warn">${esc(state.adminDataError)}</div>` : ""}
     <form id="release-form" class="form-grid"><label class="field"><span>Versão</span><input class="input" name="version" value="${esc(APP_VERSION)}" maxlength="40" required></label><label class="field"><span>Título da atualização</span><input class="input" name="title" maxlength="160" required></label><label class="field wide"><span>Descrição das mudanças / manutenção</span><textarea class="input" name="details" rows="5" maxlength="4000" required></textarea></label><button class="btn primary" type="submit" ${state.adminDataError ? "disabled" : ""}>Registrar atualização</button></form>
     <h3 class="section-title" style="margin-top:24px">Histórico de versões</h3><div class="update-list">${notes.length ? notes.map((note) => `<article class="update-entry"><div class="update-heading"><strong>${esc(note.version)} · ${esc(note.title)}</strong><small>${brasilia(note.published_at)}</small></div><p>${esc(note.details).replace(/\n/g, "<br>")}</p><small>Registrado por ${esc(memberName(note.created_by, "Sistema"))}</small></article>`).join("") : '<div class="empty">Nenhuma atualização registrada.</div>'}</div></div></section>
-    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit"; return `<article class="update-entry"><div class="update-heading"><strong>${timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
+    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit", queueSkip = item.correction_type === "queue_skip"; return `<article class="update-entry"><div class="update-heading"><strong>${queueSkip ? "PAUSE local repetido · " : timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${queueSkip ? `Apontamento não enviado de ${brasilia(item.previous_state?.pending_occurred_at)}; nenhum tempo gravado foi alterado` : timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
 }
 function pendingDescription(item) {
   const taskId = item.args?.p_task_id || item.row?.task_id || item.where?.task_id || (item.table === "fc_tasks" ? item.row?.id : null);
@@ -445,7 +472,7 @@ function renderRecoveryPanel() {
   return `<section class="panel recovery-panel" aria-label="Recuperação dos registros pendentes"><div class="panel-head"><div><h2>Recuperar registros pendentes</h2><p>${state.queue.length} operação(ões) neste navegador, incluindo ${actions} apontamento(s) de tempo.</p></div><span class="badge paused">Envio automático pausado</span></div>
     <div class="panel-body"><p>${state.queue.some(isLegacyTaskWrite) ? "Uma inclusão de rotina anterior foi recusada pelo servidor." : "O servidor recusou a primeira operação pendente."} Os registros seguintes estão preservados neste navegador. Confira a lista, baixe uma cópia de segurança e solicite a análise do administrador antes de tentar novamente. Não limpe os dados do site nem troque de navegador.</p>
     ${state.syncError ? `<div class="notice warn">Última falha: ${esc(state.syncError)}</div>` : ""}
-    <div class="recovery-actions"><button class="btn" data-action="download-queue">Baixar cópia da fila (JSON)</button><label><input type="checkbox" id="queue-backup-confirm" ${state.recoveryBackupConfirmed ? "checked" : ""} ${state.recoveryBackupRequested ? "" : "disabled"}> Confirme que o arquivo foi salvo neste aparelho</label><button class="btn primary" data-action="sync-queue" ${!state.online || !state.recoveryBackupConfirmed || flushing ? "disabled" : ""}>Sincronizar após revisão</button></div>
+    <div class="recovery-actions"><button class="btn" data-action="download-queue">Baixar cópia da fila (JSON)</button><label><input type="checkbox" id="queue-backup-confirm" ${state.recoveryBackupConfirmed ? "checked" : ""} ${state.recoveryBackupRequested ? "" : "disabled"}> Confirme que o arquivo foi salvo neste aparelho</label>${isDuplicatePauseBlocked() ? `<button class="btn danger" data-action="skip-duplicate-pause" ${!state.online || !state.recoveryBackupConfirmed || flushing ? "disabled" : ""}>Retirar PAUSE repetido</button>` : ""}<button class="btn primary" data-action="sync-queue" ${!state.online || !state.recoveryBackupConfirmed || flushing || isDuplicatePauseBlocked() ? "disabled" : ""}>Sincronizar após revisão</button></div>
     <small class="muted">A cópia contém informações das rotinas. Guarde-a em local restrito e não a publique no GitHub.</small>
     <details class="recovery-details" open><summary>Revisar ${records.length} operação(ões)</summary><div class="table-wrap"><table><thead><tr><th>#</th><th>Ação</th><th>Rotina / empresa</th><th>Competência</th><th>Horário · Brasília</th></tr></thead><tbody>${records.map((item, index) => `<tr><td>${index + 1}</td><td>${esc(item.action)}</td><td>${esc(item.target)}</td><td>${esc(item.month)}</td><td>${esc(item.time)}</td></tr>`).join("")}</tbody></table></div></details></div></section>`;
 }
@@ -730,6 +757,7 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
   if (action === "download-queue") { downloadQueueBackup(); return; }
+  if (action === "skip-duplicate-pause") { await skipDuplicatePause(); return; }
   if (action === "sync-queue") {
     if (!state.recoveryHold || !state.recoveryBackupRequested || !state.recoveryBackupConfirmed || !state.online) return;
     if (!confirm(`Confirma que revisou as ${state.queue.length} operações pendentes e salvou a cópia de segurança? Elas serão enviadas na ordem original. Em caso de erro, o envio será interrompido.`)) return;

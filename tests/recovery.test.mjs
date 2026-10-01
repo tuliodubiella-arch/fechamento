@@ -29,6 +29,7 @@ function setup(queue, handlers = {}) {
     location: { hash: "" },
     navigator: { onLine: true },
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    confirm: () => true,
     render() {}, toast() {}, async loadData() {},
   });
   vm.runInContext(source, context);
@@ -91,6 +92,30 @@ test("falha de rede mantém tentativa futura sem entrar em revisão", async () =
   assert.equal(storage.has(`fc_recovery_hold_${userId}`), false);
 });
 
+test("PAUSE repetido sai somente após auditoria e preserva os demais apontamentos", async () => {
+  const pending = [
+    { kind: "rpc", name: "fc_apply_activity", args: { p_event_id: "22222222-2222-4222-8222-222222222222", p_task_id: "task-25962", p_competence: "2026-09", p_action: "pause", p_occurred_at: "2026-10-01T11:44:00Z" } },
+    { kind: "rpc", name: "fc_apply_activity", args: { p_action: "play" } },
+  ];
+  const { context, storage, calls, userId } = setup(pending);
+  storage.set(`fc_recovery_hold_${userId}`, "1");
+  vm.runInContext("function pendingDescription() { return { target: 'IMOBILIZADO', time: '01/10/2026, 08:44' }; } state.recoveryHold = true; state.syncError = 'A rotina não está em andamento'; state.recoveryBackupRequested = true; state.recoveryBackupConfirmed = true;", context);
+  await vm.runInContext("skipDuplicatePause()", context);
+  assert.deepEqual(calls, [["rpc", "fc_skip_duplicate_pending_pause", undefined]]);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 1);
+  assert.equal(storage.get(`fc_recovery_hold_${userId}`), "1");
+  assert.equal(vm.runInContext("state.recoveryBackupConfirmed", context), false);
+});
+
+test("falha da auditoria mantém intacto o PAUSE pendente", async () => {
+  const pending = [{ kind: "rpc", name: "fc_apply_activity", args: { p_event_id: "22222222-2222-4222-8222-222222222222", p_task_id: "task-25962", p_competence: "2026-09", p_action: "pause", p_occurred_at: "2026-10-01T11:44:00Z" } }];
+  const { context, storage, userId } = setup(pending, { rpc: () => ({ error: { message: "A rotina mudou" } }) });
+  vm.runInContext("function pendingDescription() { return { target: 'IMOBILIZADO', time: '01/10/2026, 08:44' }; } state.recoveryHold = true; state.syncError = 'A rotina não está em andamento'; state.recoveryBackupRequested = true; state.recoveryBackupConfirmed = true;", context);
+  await vm.runInContext("skipDuplicatePause()", context);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 1);
+  assert.equal(vm.runInContext("state.recoveryBackupConfirmed", context), true);
+});
+
 test("inclusão já recebida pelo servidor não duplica a rotina", async () => {
   const { context, calls, storage, userId } = setup(queue, { insert: () => ({ error: { code: "23505" } }), existing: { data: task, error: null } });
   await vm.runInContext("state.recoveryApproved = true; flush()", context);
@@ -108,4 +133,14 @@ test("revisão mostra o total e os apontamentos antes de liberar o envio", () =>
   assert.match(html, /disabled>Sincronizar após revisão/);
   assert.match(html, /PLAY/);
   assert.match(html, /STOP/);
+});
+
+test("PAUSE repetido oferece retirada pontual e bloqueia sincronização da fila", () => {
+  const pending = [{ kind: "rpc", name: "fc_apply_activity", args: { p_event_id: "22222222-2222-4222-8222-222222222222", p_task_id: "task-25962", p_competence: "2026-09", p_action: "pause", p_occurred_at: "2026-10-01T11:44:00Z" } }];
+  const { context } = setup(pending);
+  vm.runInContext(`function pendingDescription${recoveryUiSource}`, context);
+  vm.runInContext("state.recoveryHold = true; state.syncError = 'A rotina não está em andamento'; state.recoveryBackupConfirmed = true;", context);
+  const html = vm.runInContext("renderRecoveryPanel()", context);
+  assert.match(html, /Retirar PAUSE repetido/);
+  assert.match(html, /disabled>Sincronizar após revisão/);
 });
