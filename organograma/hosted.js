@@ -28,16 +28,20 @@ async function openProtectedOrganogram(session) {
   }
   showAuthMessage('Validando acesso…');
   const { data: member, error: memberError } = await orgClient.from('fc_members').select('id,name,active,is_admin').eq('id', session.user.id).maybeSingle();
-  if (memberError || !member?.active) {
-    document.getElementById('orgLogin').hidden = true;
-    document.getElementById('orgForgot').hidden = true;
-    showAuthMessage('Acesso pendente. Peça ao administrador para liberar seu cadastro no painel de fechamento.');
+  if (memberError || !member?.active || !member.is_admin) {
+    orgCurrentUserId = null;
+    orgCurrentMember = null;
+    showLogin();
+    document.getElementById('orgSetup').hidden = true;
+    showAuthMessage(member?.active && !member.is_admin
+      ? 'O organograma é exclusivo dos administradores do painel de fechamento.'
+      : 'Acesso pendente. Peça ao administrador para liberar seu cadastro no painel de fechamento.');
     return;
   }
   orgCurrentUserId = session.user.id;
   orgCurrentMember = member;
-  document.getElementById('orgSyncTools').hidden = !member.is_admin;
-  document.getElementById('membersTab').hidden = !member.is_admin;
+  document.getElementById('orgSyncTools').hidden = false;
+  document.getElementById('membersTab').hidden = false;
   const { data: workspace, error: workspaceError } = await orgClient.from('org_workspace').select('payload').eq('id', 'main').maybeSingle();
   if (workspaceError) {
     showAuthMessage('Não foi possível carregar as rotinas protegidas. Tente novamente.');
@@ -46,8 +50,8 @@ async function openProtectedOrganogram(session) {
   if (!workspace) {
     document.getElementById('orgLogin').hidden = true;
     document.getElementById('orgForgot').hidden = true;
-    document.getElementById('orgSetup').hidden = !member.is_admin;
-    showAuthMessage(member.is_admin ? 'Aguardando a carga inicial do organograma.' : 'O organograma ainda não foi inicializado pelo administrador.');
+    document.getElementById('orgSetup').hidden = false;
+    showAuthMessage('Aguardando a carga inicial do organograma.');
     return;
   }
   buildFromState(workspace.payload);
@@ -252,3 +256,4 @@ orgClient.auth.onAuthStateChange((event, session) => {
 });
 
 orgClient.auth.getSession().then(({ data }) => openProtectedOrganogram(data.session));
+
