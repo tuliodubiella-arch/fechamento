@@ -2,12 +2,6 @@
 
 Painel claro e instalável para a execução mensal das contas por empresa. A interface fica em `https://tuliodubiella-arch.github.io/fechamento/`; autenticação, dados e permissões ficam no projeto Supabase da conta do administrador, separado do painel antigo. Nenhuma informação contábil deve ser publicada no GitHub.
 
-## Organograma de rotinas
-
-O portal também disponibiliza o organograma em `https://tuliodubiella-arch.github.io/fechamento/organograma/`. A página reutiliza a mesma autenticação do Fechamento Contábil e carrega nomes, rotinas, responsáveis e manuais somente após validar um integrante ativo em `fc_members`. Esses dados ficam no registro protegido `org_workspace/main`, sob RLS, e não são incluídos nos arquivos públicos do GitHub.
-
-No organograma, administradores possuem a aba **Usuários de acesso** para enviar convites e escolher entre os perfis Administrador e Somente visualização. A migração `supabase/migrations/20260929_organogram_access_roles.sql` restringe alterações do organograma a administradores; usuários de visualização mantêm acesso de leitura às rotinas e manuais.
-
 ## Ativação
 
 1. No projeto Supabase `jbnqgchofaprjjwbuzpe`, execute `supabase/closing_schema.sql` no SQL Editor.
@@ -23,13 +17,15 @@ Para a versão `2026.09.28.1`, aplique `supabase/migrations/20260928_task_retire
 
 Para a versão `2026.09.28.2`, aplique `supabase/migrations/20260928_admin_time_edits.sql` antes de publicar a interface. A edição administrativa do tempo total exige que a tarefa esteja pausada ou finalizada, conexão, motivo e confirmação. Cada ajuste fica no histórico de correções com o valor anterior e o novo valor; os eventos PLAY/PAUSE/STOP originais são preservados.
 
-## Endereço e convites
+Para a versão `2026.10.01.2`, aplique `supabase/migrations/20261001_receipt_evidence_organogram_admin.sql`. A migração mantém os recebimentos anteriores, cria o histórico de entregas parciais/completas e um bucket privado para prints, além de restringir toda a leitura do organograma aos administradores. O texto reconhecido por OCR não é enviado nem salvo; cada usuário confirma a data e hora sugeridas antes de registrar.
+
+## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
 - Após publicar o novo repositório e validar HTTPS, publique a função `fc-invite-member` com o redirecionamento novo e configure **Site URL** e **Redirect URLs** em **Authentication → URL Configuration** no Supabase. Mantenha a URL antiga na lista de redirecionamento durante a transição. Teste login e convite antes de divulgar o endereço novo.
-- O projeto utiliza o serviço de e-mail padrão do Supabase e o modelo padrão de convite em inglês. Não configure SMTP personalizado nem modelos próprios sem validar previamente o provedor de envio.
+- O projeto Supabase Free criado após junho de 2026 exige SMTP próprio para editar os modelos de e-mail. Use um serviço de envio autorizado pela empresa e configure-o em **Authentication → Emails → SMTP Settings**, com remetente no domínio verificado. Depois, em **Templates → Invite user**, use o assunto `Convite para o Portal de Fechamento Contábil | Grupo Cavalca` e o conteúdo de `supabase/templates/invite-user.html`. Não salve senhas SMTP ou chaves de API no repositório.
 
-O site atual não é alterado por esta implantação. Na migração, os apontamentos de teste de setembro/2026 são omitidos e os apontamentos reais de outubro/2026 são preservados.
+Na migração inicial, os apontamentos de teste de setembro/2026 foram omitidos e os apontamentos reais de outubro/2026 preservados.
 
 ## Operação
 
@@ -42,4 +38,7 @@ O site atual não é alterado por esta implantação. Na migração, os apontame
 - Em **Execução**, o administrador pode excluir uma tarefa do mês selecionado e dos seguintes, com motivo, mantendo os fechamentos anteriores. Em **Cadastros**, pode promover um responsável ativo a administrador; o novo perfil acessa todas as telas.
 - Em **Execução**, o administrador pode usar **Editar tempo** para corrigir a duração total de uma tarefa pausada ou finalizada. A tela **Versões** mostra quem fez o ajuste, quando, o motivo e os tempos anterior e novo.
 - Em **Metas**, **Imprimir lista / PDF** gera uma lista compacta de cinco colunas (ordem, empresa, prioridade, dia útil e previsão) em A4 vertical; a exportação XLSX continua com as informações completas.
+- Em **Metas**, cada setor pode registrar várias entregas por empresa e competência. Um print PNG/JPG/WebP de até 5 MB é obrigatório para cada novo recebimento; a leitura da imagem sugere horários, mas o usuário deve escolher e confirmar o horário do e-mail em Brasília. **Parcial** mantém o setor aberto; **Completa** o encerra. Os prints ficam privados no Supabase e podem conter informações do e-mail, portanto recorte dados desnecessários antes do envio. Se o aparelho estiver offline, o print aguarda sincronização local no mesmo navegador; não limpe seus dados antes da confirmação do envio.
+- O organograma completo, inclusive a visualização por usuário, exige perfil de administrador. A interface e a política de leitura do banco aplicam essa restrição.
 - Os dias úteis excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi de 2026 e feriados adicionais cadastrados no painel. Confirme feriados locais de anos futuros no cadastro.
+
