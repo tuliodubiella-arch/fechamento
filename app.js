@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.09.28.5";
+const APP_VERSION = "2026.10.01.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -320,15 +320,16 @@ function zipFiles(files) {
   return new Blob(parts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 function exportGoalsXlsx() {
+  const exportRows = goalExportRows();
   const cell = (value, reference, style = 0) => typeof value === "number"
     ? `<c r="${reference}" s="${style}"><v>${value}</v></c>`
     : `<c r="${reference}" s="${style}" t="inlineStr"><is><t>${esc(value)}</t></is></c>`;
   const rows = [
     `<row r="1" ht="32">${cell(`GRUPO CAVALCA · ORDEM DE FECHAMENTO · ${monthName(state.month).toUpperCase()}`, "A1", 1)}</row>`,
     `<row r="2" ht="25">${goalHeaders.map((value, index) => cell(value, `${String.fromCharCode(65 + index)}2`, 2)).join("")}</row>`,
-    ...goalExportRows().map((values, rowIndex) => `<row r="${rowIndex + 3}" ht="22">${values.map((value, columnIndex) => cell(value, `${String.fromCharCode(65 + columnIndex)}${rowIndex + 3}`, rowIndex % 2 ? 4 : 3)).join("")}</row>`),
+    ...exportRows.map((values, rowIndex) => `<row r="${rowIndex + 3}" ht="22">${values.map((value, columnIndex) => cell(value, `${String.fromCharCode(65 + columnIndex)}${rowIndex + 3}`, rowIndex % 2 ? 4 : 3)).join("")}</row>`),
   ];
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="9" customWidth="1"/><col min="2" max="2" width="42" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="6" width="22" customWidth="1"/><col min="7" max="10" width="24" customWidth="1"/></cols><sheetData>${rows.join("")}</sheetData><mergeCells count="1"><mergeCell ref="A1:J1"/></mergeCells><autoFilter ref="A2:J${Math.max(3, goalExportRows().length + 2)}"/></worksheet>`;
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="9" customWidth="1"/><col min="2" max="2" width="42" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="6" width="22" customWidth="1"/><col min="7" max="10" width="24" customWidth="1"/></cols><sheetData>${rows.join("")}</sheetData><autoFilter ref="A2:J${Math.max(2, exportRows.length + 2)}"/><mergeCells count="1"><mergeCell ref="A1:J1"/></mergeCells></worksheet>`;
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="15"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF39373A"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF39373A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFB519"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>`;
   const files = {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
@@ -388,7 +389,7 @@ function render() {
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto">${monthOptions()}</select>
     <span class="status-pill ${state.online ? "" : "offline"}">${state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
-    <a class="btn compact" href="organograma/">Organograma de rotinas</a><span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
+    <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout">Sair</button></div></div></header>
     <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     <nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
