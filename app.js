@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.5";
+const APP_VERSION = "2026.10.01.6";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -364,7 +364,7 @@ function goalExportRows() {
   return orderedGoals().map((company, index) => {
     const goal = company.goal;
     return [index + 1, company.name, goal.category, goal.business_day || "", dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day)),
-      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.received_at ? `${receipt.status === "Recebido" ? "Completo" : receipt.status} · ${brasilia(receipt.received_at)}` : receipt?.status || "Pendente"; })];
+      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.received_at ? `${receiptStatusLabel(receipt.status)} · ${brasilia(receipt.received_at)}` : receiptStatusLabel(receipt?.status); })];
   });
 }
 function crc32(bytes) {

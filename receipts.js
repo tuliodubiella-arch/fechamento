@@ -1,10 +1,12 @@
-/* Os prints são processados no navegador; o texto reconhecido nunca é enviado ou armazenado. */
+/* A data do e-mail é informada pelo usuário; o horário do lançamento é guardado à parte. */
 const RECEIPT_BUCKET = "fc-receipt-evidence";
-const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
 let receiptEditor = null;
-let receiptPreviewUrl = null;
 let receiptSyncing = false;
 let pendingReceiptItems = [];
+
+function receiptStatusLabel(status) {
+  return status === "Recebido" ? "Recebido" : status === "Parcial" ? "Recebido parcial" : status || "Pendente";
+}
 
 function receiptDeliveriesFor(companyId, department) {
   return state.receiptDeliveries.filter((item) => item.company_id === companyId && item.competence === state.month && item.department === department)
@@ -12,16 +14,20 @@ function receiptDeliveriesFor(companyId, department) {
 }
 function renderReceiptCell(company, department) {
   const receipt = receiptFor(company.id, department);
-  const status = receipt?.status === "Recebido" ? "Completo" : receipt?.status || "Pendente";
+  const pendingRows = pendingReceiptItems.filter((item) => item.user_id === state.member?.id && item.row.company_id === company.id
+    && item.row.competence === state.month && item.row.department === department).map((item) => item.row);
+  const status = receipt?.status === "Recebido" || pendingRows.some((item) => item.completeness === "Completa") ? "Recebido"
+    : pendingRows.length ? "Parcial" : receipt?.status || "Pendente";
+  const lastEmailAt = [receipt?.received_at, ...pendingRows.map((item) => item.delivered_at)].filter(Boolean).sort().at(-1);
   const count = receiptDeliveriesFor(company.id, department).length;
-  const pending = pendingReceiptItems.filter((item) => item.user_id === state.member?.id && item.row.company_id === company.id
-    && item.row.competence === state.month && item.row.department === department).length;
+  const pending = pendingRows.length;
   const canRegister = !isHistorical() && state.receiptFeatureReady;
-  return `<td class="receipt-cell"><strong class="receipt-status ${status === "Completo" ? "complete" : status === "Parcial" ? "partial" : ""}">${esc(status)}</strong>
-    <small>${receipt?.received_at ? brasilia(receipt.received_at) : status === "N/A" ? "Não aplicável" : "Aguardando"}</small>
+  return `<td class="receipt-cell"><strong class="receipt-status ${status === "Recebido" ? "complete" : status === "Parcial" ? "partial" : ""}">${esc(receiptStatusLabel(status))}</strong>
+    <small>${lastEmailAt ? brasilia(lastEmailAt) : status === "N/A" ? "Não aplicável" : "Aguardando"}</small>
+    ${canRegister ? `<select class="select receipt-status-select" aria-label="Status de ${esc(department)} para ${esc(company.name)}" data-action="receipt-status" data-id="${esc(company.id)}" data-department="${department}">
+      <option value="Pendente" ${status === "Pendente" ? "selected" : ""}>Pendente</option><option value="Parcial" ${status === "Parcial" ? "selected" : ""}>Recebido parcial</option><option value="Recebido" ${status === "Recebido" ? "selected" : ""}>Recebido</option><option value="N/A" ${status === "N/A" ? "selected" : ""}>N/A</option></select>` : ""}
     <button class="btn compact" type="button" data-action="receipt-open" data-id="${esc(company.id)}" data-department="${department}" ${canRegister || count ? "" : "disabled"}>${canRegister ? "Registrar / ver entregas" : `Ver ${count} entrega(s)`}</button>
-    ${pending ? `<small class="receipt-pending">${pending} print(s) pendente(s) de envio</small>` : ""}
-    ${canRegister && !count ? `<button class="btn compact" type="button" data-action="receipt-na" data-id="${esc(company.id)}" data-department="${department}">${status === "N/A" ? "Reativar" : "Marcar N/A"}</button>` : ""}</td>`;
+    ${pending ? `<small class="receipt-pending">${pending} entrega(s) aguardando sincronização</small>` : ""}</td>`;
 }
 function renderReceiptPanel() {
   if (!receiptEditor) return "";
@@ -34,57 +40,55 @@ function renderReceiptPanel() {
   const entries = [...history.map((item) => ({ ...item, pending: false })), ...pending.map((item) => ({ ...item.row, pending: true }))]
     .sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
   return `<section class="panel receipt-panel" id="receipt-panel"><div class="panel-head"><div><h2>Entregas de ${esc(department.toUpperCase())}</h2><p>${esc(company.name)} · ${esc(monthName(state.month))}</p></div><button class="btn compact" type="button" data-action="receipt-close">Fechar</button></div><div class="panel-body">
-    ${!state.receiptFeatureReady ? '<div class="notice warn">O cadastro de evidências ainda está sendo configurado. Os registros anteriores permanecem preservados.</div>' : ""}
-    ${!isHistorical() && state.receiptFeatureReady ? `<form id="receipt-form" class="receipt-form"><label class="field"><span>Print do e-mail recebido</span><input id="receipt-image" class="input" type="file" accept="image/png,image/jpeg,image/webp" required><small>PNG, JPG ou WebP, até 5 MB. O print será salvo como evidência, mas o texto reconhecido não será guardado. Recorte informações desnecessárias antes de enviar.</small></label>
-      <div class="receipt-preview"><img id="receipt-preview-image" alt="Prévia do print" hidden><p id="receipt-ocr-status" class="muted">Selecione o print para localizar a data e hora.</p></div>
-      <label class="field"><span>Datas encontradas no print</span><select id="receipt-candidates" class="select" disabled><option value="">Aguardando leitura da imagem</option></select></label>
-      <label class="field"><span>Data e hora do recebimento do e-mail · Brasília/DF</span><input id="receipt-delivered-at" name="delivered_at" class="input" type="datetime-local" step="1" required><small>Confirme este horário antes de registrar. Se a leitura não o localizar, informe-o manualmente.</small></label>
-      <label class="field"><span>Esta entrega foi</span><select name="completeness" class="select" required><option value="Parcial">Parcial — mantém o item aberto</option><option value="Completa">Completa — encerra o item</option></select></label>
+    ${!state.receiptFeatureReady ? '<div class="notice warn">O cadastro de entregas ainda está sendo configurado. Os registros anteriores permanecem preservados.</div>' : ""}
+    ${!isHistorical() && state.receiptFeatureReady ? `<form id="receipt-form" class="receipt-form">
+      <label class="field"><span>Data e hora do e-mail recebido · Brasília/DF</span><input id="receipt-delivered-at" name="delivered_at" class="input" type="text" inputmode="text" autocomplete="off" placeholder="qui 01/10/2026 11:45" required><small>Cole o horário mostrado no e-mail: qui 01/10/2026 11:45 ou 01/10/2026 11:45. Não use o horário do lançamento no painel.</small></label>
+      <label class="field"><span>Esta entrega foi parcial ou completa?</span><select name="completeness" class="select" required><option value="">Selecione</option><option value="Parcial">Parcial — mantém o item aberto</option><option value="Completa">Completa — encerra o item</option></select></label>
+      <div class="receipt-preview" id="receipt-status-preview" role="status" aria-live="polite">Cole a data e hora do e-mail e informe se a entrega foi parcial ou completa.</div>
       <label class="field"><span>O que foi entregue ou ainda falta? (opcional)</span><textarea name="note" class="input" rows="2" maxlength="500"></textarea></label>
-      <button class="btn primary" type="submit">Registrar entrega e print</button></form>` : ""}
-    <h3 class="section-title">Histórico de recebimentos</h3><div class="receipt-history">${entries.length ? entries.map((item) => `<div class="receipt-entry"><div><strong>${item.completeness === "Completa" ? "Completa" : "Parcial"}${item.pending ? " · aguardando sincronização" : ""}</strong><small>E-mail recebido em ${brasilia(item.delivered_at)}</small>${item.note ? `<p>${esc(item.note)}</p>` : ""}${item.source === "legacy" ? '<small>Registro anterior, sem print anexado.</small>' : ""}</div>${item.evidence_path ? `<button class="btn compact" type="button" data-action="receipt-view" data-id="${esc(item.id)}" ${item.pending ? 'data-pending="true"' : ""}>Ver print</button>` : ""}</div>`).join("") : '<p class="muted">Nenhuma entrega registrada para este setor neste mês.</p>'}</div>
+      <button class="btn primary" type="submit">Registrar entrega</button></form>` : ""}
+    <h3 class="section-title">Histórico de recebimentos</h3><div class="receipt-history">${entries.length ? entries.map((item) => `<div class="receipt-entry"><div><strong>${item.completeness === "Completa" ? "Recebido" : "Recebido parcial"}${item.pending ? " · aguardando sincronização" : ""}</strong><small>E-mail recebido em ${brasilia(item.delivered_at)}</small>${item.source === "legacy" ? '<small>Registro anterior; horário do lançamento original não disponível.</small>' : `<small>Lançado no painel em ${brasilia(item.recorded_at)}</small>`}${item.note ? `<p>${esc(item.note)}</p>` : ""}</div>${item.evidence_path ? `<button class="btn compact" type="button" data-action="receipt-view" data-id="${esc(item.id)}" ${item.pending ? 'data-pending="true"' : ""}>Ver print anterior</button>` : ""}</div>`).join("") : '<p class="muted">Nenhuma entrega registrada para este setor neste mês.</p>'}</div>
   </div></section>`;
 }
 
-function receiptDatesFromText(text) {
-  const dates = new Set();
-  const add = (day, month, year, hour, minute, second = "00") => {
-    const y = Number(year) < 100 ? 2000 + Number(year) : Number(year);
-    const d = Number(day), m = Number(month), h = Number(hour), min = Number(minute), sec = Number(second);
-    const check = new Date(Date.UTC(y, m - 1, d));
-    if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d || h > 23 || min > 59 || sec > 59) return;
-    dates.add(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`);
-  };
-  const numeric = /(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\s*(?:,|às?|as)?\s*(\d{1,2})[:h](\d{2})(?::(\d{2}))?/gi;
-  for (const match of text.matchAll(numeric)) add(match[1], match[2], match[3], match[4], match[5], match[6]);
-  const months = { janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6, julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12 };
-  const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const written = /(\d{1,2})\s+de\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+(\d{4})\s*(?:,|às?|as)?\s*(\d{1,2})[:h](\d{2})(?::(\d{2}))?/gi;
-  for (const match of normalized.matchAll(written)) add(match[1], months[match[2]], match[3], match[4], match[5], match[6]);
-  return [...dates];
+function parseReceiptEmailDate(value) {
+  const normalized = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const match = normalized.match(/^(?:(dom|seg|ter|qua|qui|sex|sab)\.?[,]?[\s]+)?(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const [, weekday, dayText, monthText, yearText, hourText, minuteText] = match;
+  const day = Number(dayText), month = Number(monthText), year = Number(yearText), hour = Number(hourText), minute = Number(minuteText);
+  if (year < 2000 || year > 2100 || month < 1 || month > 12 || hour > 23 || minute > 59) return null;
+  const calendarDay = new Date(Date.UTC(year, month - 1, day));
+  if (calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 || calendarDay.getUTCDate() !== day) return null;
+  if (weekday && ["dom", "seg", "ter", "qua", "qui", "sex", "sab"][calendarDay.getUTCDay()] !== weekday) return null;
+  const formatter = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  let instant = target;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+    const seen = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
+    instant += target - seen;
+  }
+  const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+  if ([parts.year, parts.month, parts.day, parts.hour, parts.minute].join("-") !== [year, month, day, hour, minute].join("-")) return null;
+  return new Date(instant).toISOString();
 }
-async function readReceiptImage(file) {
-  const status = document.getElementById("receipt-ocr-status");
-  const choices = document.getElementById("receipt-candidates");
-  const time = document.getElementById("receipt-delivered-at");
-  if (!status || !choices || !time) return;
-  status.textContent = "Lendo a data e hora no print…";
-  choices.disabled = true;
-  let worker;
-  try {
-    if (!window.Tesseract) throw new Error("O leitor de imagens ainda não está disponível neste aparelho.");
-    worker = await window.Tesseract.createWorker("por");
-    const { data } = await worker.recognize(file);
-    if (document.getElementById("receipt-image")?.files?.[0] !== file || !status.isConnected) return;
-    const dates = receiptDatesFromText(data.text || "");
-    choices.replaceChildren(...dates.map((value) => { const option = document.createElement("option"); option.value = value; option.textContent = new Date(`${value}-03:00`).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }); return option; }));
-    choices.disabled = !dates.length;
-    if (dates.length) {
-      time.value = dates[0];
-      status.textContent = `${dates.length} data(s) e horário(s) encontrados. Confira se o primeiro corresponde ao recebimento do e-mail.`;
-    } else status.textContent = "A leitura não encontrou data e hora juntas. Informe o horário manualmente com base no print.";
-  } catch (error) { status.textContent = `Não foi possível ler automaticamente: ${error.message || error}. Informe o horário manualmente.`; }
-  finally { if (worker) await worker.terminate(); }
+function updateReceiptPreview() {
+  const form = document.getElementById("receipt-form"), preview = document.getElementById("receipt-status-preview");
+  if (!form || !preview) return;
+  const value = form.elements.namedItem("delivered_at").value.trim();
+  const complete = form.elements.namedItem("completeness").value;
+  const iso = parseReceiptEmailDate(value);
+  if (!value) preview.textContent = "Cole a data e hora do e-mail e informe se a entrega foi parcial ou completa.";
+  else if (!iso) preview.textContent = "Confira a data e hora. Use, por exemplo, qui 01/10/2026 11:45 ou 01/10/2026 11:45.";
+  else if (Date.parse(iso) > Date.now() + 5 * 60000) preview.textContent = "O horário do e-mail está no futuro. Confira antes de registrar.";
+  else if (!complete) preview.textContent = `E-mail recebido em ${brasilia(iso)}. Informe se a entrega foi parcial ou completa.`;
+  else {
+    const alreadyComplete = receiptEditor && (receiptFor(receiptEditor.companyId, receiptEditor.department)?.status === "Recebido"
+      || pendingReceiptItems.some((item) => item.user_id === state.member?.id && item.row.company_id === receiptEditor.companyId
+        && item.row.competence === state.month && item.row.department === receiptEditor.department && item.row.completeness === "Completa"));
+    preview.textContent = `Status após salvar: ${alreadyComplete || complete === "Completa" ? "Recebido" : "Recebido parcial"} · e-mail recebido em ${brasilia(iso)}. O horário do lançamento será registrado separadamente.`;
+  }
 }
 
 function receiptDatabase() {
@@ -134,15 +138,19 @@ async function syncReceiptPending() {
       if (lookupError) throw lookupError;
       if (!existing) {
         await ensureReceiptTarget(item.row);
-        const { error: uploadError } = await client.storage.from(RECEIPT_BUCKET).upload(item.row.evidence_path, item.file, { contentType: item.file.type, upsert: false });
-        if (uploadError && !/already exists|duplicate/i.test(uploadError.message || "")) throw uploadError;
-        const { error: insertError } = await client.from("fc_receipt_deliveries").insert(item.row);
+        if (item.row.evidence_path) {
+          if (!item.file) throw new Error("Um print antigo pendente não está mais disponível neste navegador.");
+          const { error: uploadError } = await client.storage.from(RECEIPT_BUCKET).upload(item.row.evidence_path, item.file, { contentType: item.file.type, upsert: false });
+          if (uploadError && !/already exists|duplicate/i.test(uploadError.message || "")) throw uploadError;
+        }
+        const row = item.row.evidence_path ? { ...item.row, source: "print" } : item.row;
+        const { error: insertError } = await client.from("fc_receipt_deliveries").insert(row);
         if (insertError && insertError.code !== "23505") throw insertError;
       }
       await receiptStore("delete", item.id);
     }
-    if (items.length) { pendingReceiptItems = await receiptStore("all"); await loadData(); toast("Entregas e prints sincronizados."); }
-  } catch (error) { toast(`Envio de prints pendente: ${error.message || error}`); }
+    if (items.length) { pendingReceiptItems = await receiptStore("all"); await loadData(); toast("Entregas sincronizadas."); }
+  } catch (error) { toast(`Sincronização das entregas pendente: ${error.message || error}`); }
   finally { receiptSyncing = false; }
 }
 
@@ -153,16 +161,7 @@ document.addEventListener("click", async (event) => {
     receiptEditor = { companyId: id, department };
     render(); document.getElementById("receipt-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (action === "receipt-close") {
-    receiptEditor = null; if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl); receiptPreviewUrl = null; render();
-  } else if (action === "receipt-na") {
-    if (!state.receiptFeatureReady || isHistorical()) return;
-    const previous = receiptFor(id, department);
-    const nextStatus = previous?.status === "N/A" ? "Pendente" : "N/A";
-    if (nextStatus === "N/A" && receiptDeliveriesFor(id, department).length) return toast("Há entregas registradas. Não é possível marcar este setor como N/A.");
-    const row = { company_id: id, competence: state.month, department, status: nextStatus, received_at: null, updated_by: state.member.id };
-    changeLocal("receipts", row, ["company_id", "competence", "department"]);
-    if (!state.targets.some((item) => item.company_id === id && item.competence === state.month)) saveGoal(id, {});
-    enqueue({ kind: "upsert", table: "fc_receipts", row, conflict: "company_id,competence,department" });
+    receiptEditor = null; render();
   } else if (action === "receipt-view") {
     const pending = button.dataset.pending === "true";
     const item = pending ? pendingReceiptItems.find((entry) => entry.id === id)?.row : state.receiptDeliveries.find((entry) => entry.id === id);
@@ -180,39 +179,51 @@ document.addEventListener("click", async (event) => {
   }
 });
 document.addEventListener("change", (event) => {
-  if (event.target.id === "receipt-candidates") document.getElementById("receipt-delivered-at").value = event.target.value;
-  if (event.target.id !== "receipt-image") return;
-  const file = event.target.files?.[0]; if (!file) return;
-  const status = document.getElementById("receipt-ocr-status");
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > RECEIPT_MAX_BYTES) {
-    event.target.value = ""; status.textContent = "Use um print PNG, JPG ou WebP de até 5 MB."; return;
+  if (event.target.name === "completeness" && event.target.closest("#receipt-form")) return updateReceiptPreview();
+  if (event.target.dataset.action !== "receipt-status" || !state.receiptFeatureReady || isHistorical() || !state.member) return;
+  const { id, department } = event.target.dataset, nextStatus = event.target.value;
+  const current = receiptFor(id, department)?.status || "Pendente";
+  if (nextStatus === current && !pendingReceiptItems.some((item) => item.user_id === state.member.id
+    && item.row.company_id === id && item.row.competence === state.month && item.row.department === department)) return;
+  if (nextStatus === "Parcial" || nextStatus === "Recebido") {
+    receiptEditor = { companyId: id, department };
+    render();
+    document.querySelector('#receipt-form [name="completeness"]').value = nextStatus === "Recebido" ? "Completa" : "Parcial";
+    updateReceiptPreview();
+    document.getElementById("receipt-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
   }
-  if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
-  receiptPreviewUrl = URL.createObjectURL(file);
-  const image = document.getElementById("receipt-preview-image"); image.src = receiptPreviewUrl; image.hidden = false;
-  void readReceiptImage(file);
+  const hasDeliveries = receiptDeliveriesFor(id, department).length || pendingReceiptItems.some((item) => item.user_id === state.member.id
+    && item.row.company_id === id && item.row.competence === state.month && item.row.department === department);
+  if (hasDeliveries) { render(); return toast("Há recebimentos registrados para este setor. O histórico não pode ser apagado ao mudar o status."); }
+  const row = { company_id: id, competence: state.month, department, status: nextStatus, received_at: null, updated_by: state.member.id };
+  changeLocal("receipts", row, ["company_id", "competence", "department"]);
+  if (!state.targets.some((item) => item.company_id === id && item.competence === state.month)) saveGoal(id, {});
+  enqueue({ kind: "upsert", table: "fc_receipts", row, conflict: "company_id,competence,department" });
+});
+document.addEventListener("input", (event) => {
+  if (event.target.id === "receipt-delivered-at") updateReceiptPreview();
 });
 document.addEventListener("submit", async (event) => {
   if (event.target.id !== "receipt-form") return;
   event.preventDefault();
   if (!receiptEditor || !state.member || !state.receiptFeatureReady) return;
-  const form = event.target, file = document.getElementById("receipt-image")?.files?.[0];
-  const local = form.elements.namedItem("delivered_at")?.value;
-  if (!file || !local || !/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > RECEIPT_MAX_BYTES) return toast("Selecione um print válido e confirme a data e hora.");
-  const deliveredAt = new Date(`${local}-03:00`);
-  if (Number.isNaN(deliveredAt.getTime()) || deliveredAt.getTime() > Date.now() + 5 * 60000) return toast("Confira a data e hora do recebimento.");
+  const form = event.target;
+  const deliveredAt = parseReceiptEmailDate(form.elements.namedItem("delivered_at")?.value);
+  if (!deliveredAt || Date.parse(deliveredAt) > Date.now() + 5 * 60000) return toast("Confira o formato e a data e hora do e-mail recebido.");
   const completeness = form.elements.namedItem("completeness")?.value;
-  if (!confirm(`Confirmar entrega ${completeness.toLowerCase()} de ${receiptEditor.department.toUpperCase()} recebida em ${deliveredAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}? O horário deve ser o do e-mail, não o do upload.`)) return;
+  if (!["Parcial", "Completa"].includes(completeness)) return toast("Informe se a entrega foi parcial ou completa.");
+  if (!confirm(`Confirmar entrega ${completeness.toLowerCase()} de ${receiptEditor.department.toUpperCase()}?\n\nE-mail recebido em ${brasilia(deliveredAt)}. O momento do lançamento será registrado separadamente.`)) return;
   const button = form.querySelector('button[type="submit"]'); button.disabled = true;
   try {
-    const id = crypto.randomUUID(), ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+    const id = crypto.randomUUID();
     const row = { id, company_id: receiptEditor.companyId, competence: state.month, department: receiptEditor.department,
-      completeness, delivered_at: deliveredAt.toISOString(), evidence_path: `${state.member.id}/${id}.${ext}`,
+      completeness, delivered_at: deliveredAt, evidence_path: null, source: "manual", recorded_at: new Date().toISOString(),
       note: form.elements.namedItem("note")?.value.trim() || null, recorded_by: state.member.id };
-    await receiptStore("put", { id, user_id: state.member.id, row, file });
-    receiptEditor = null; if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl); receiptPreviewUrl = null;
+    await receiptStore("put", { id, user_id: state.member.id, row });
+    receiptEditor = null;
     await refreshPendingReceipts();
-    toast(navigator.onLine ? "Entrega salva; enviando print…" : "Entrega salva neste aparelho; o print será enviado quando houver conexão.");
+    toast(navigator.onLine ? "Entrega salva; sincronizando…" : "Entrega salva neste aparelho; será sincronizada quando houver conexão.");
     void syncReceiptPending();
   } catch (error) { button.disabled = false; toast(`Entrega não salva: ${error.message || error}`); }
 });
