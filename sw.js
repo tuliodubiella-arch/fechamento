@@ -1,6 +1,6 @@
-const CACHE = "fc-short-shell-v11";
-const SHELL = ["./", "./index.html", "./app.js", "./styles.css", "./brand/tokens.css", "./brand/overrides.css", "./brand/logo-principal.png", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
-  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"];
+const CACHE = "fc-short-shell-v12";
+const SHELL = ["./", "./index.html", "./app.js", "./receipts.js", "./styles.css", "./brand/tokens.css", "./brand/overrides.css", "./brand/logo-principal.png", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js", "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"];
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
@@ -36,3 +36,4 @@ self.addEventListener("fetch", (event) => {
     }
   })());
 });
+
