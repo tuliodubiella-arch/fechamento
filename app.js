@@ -8,12 +8,12 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.1";
+const APP_VERSION = "2026.10.01.2";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const state = {
-  session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [],
+  session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
@@ -76,7 +76,7 @@ const cacheKey = () => `fc_cache_${state.session?.user?.id || "anonymous"}`;
 const queueKey = () => `fc_queue_${state.session?.user?.id || "anonymous"}`;
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "states", "holidays", "history", "releaseNotes", "corrections"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -134,13 +134,16 @@ async function loadData() {
       const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: state.month });
       if (assignmentError) throw assignmentError;
     }
-    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history] = await Promise.all([
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries] = await Promise.all([
       allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
+      allRows("fc_receipt_deliveries").then((data) => ({ data })).catch((error) => ({ error })),
     ]);
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
+    state.receiptFeatureReady = !deliveries.error;
+    state.receiptDeliveries = deliveries.data || [];
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
     if (state.member?.is_admin) {
@@ -151,6 +154,7 @@ async function loadData() {
     } else { state.releaseNotes = []; state.corrections = []; state.adminDataError = ""; }
     state.error = state.member ? "" : "Seu acesso ao fechamento ainda não foi liberado pelo administrador.";
     state.ready = true; saveCache(); render();
+    if (state.receiptFeatureReady) void syncReceiptPending();
   } catch (error) {
     state.error = `Não foi possível carregar os dados: ${error.message || error}. Se a migração ainda não foi aplicada, aguarde a configuração.`;
     state.ready = true; render();
@@ -271,9 +275,9 @@ function renderGoals() {
       <td><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
       <td><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""} style="width:75px"></td>
       <td><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td>${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
-      ${departments.map((department) => { const receipt = receiptFor(company.id, department); return `<td><select class="select" data-action="receipt" data-id="${esc(company.id)}" data-department="${department}" ${isHistorical() ? "disabled" : ""}><option value="" ${!receipt || receipt.status === "Pendente" ? "selected" : ""}>Pendente</option><option ${receipt?.status === "Recebido" ? "selected" : ""}>Recebido</option><option ${receipt?.status === "N/A" ? "selected" : ""}>N/A</option></select><small>${receipt?.received_at ? brasilia(receipt.received_at) : receipt?.status === "N/A" ? "Não aplicável" : "Aguardando"}</small></td>`; }).join("")}
+      ${departments.map((department) => renderReceiptCell(company, department)).join("")}
       <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || companies[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === companies.length - 1 || companies[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>
-    <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>
+    <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>${renderReceiptPanel()}
     <section class="print-sheet ${printDensity}"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1></div></div><table><colgroup><col style="width:6%"><col style="width:51%"><col style="width:16%"><col style="width:10%"><col style="width:17%"></colgroup><thead><tr>${["Nº", "Empresa", "Prioridade", "Dia útil", "Previsão"].map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
 }
 const goalHeaders = ["Ordem", "Empresa", "Prioridade", "Dia útil", "Previsão", "Data de entrega", "Financeiro", "RH", "Estoque", "Fiscal"];
@@ -287,7 +291,7 @@ function goalExportRows() {
   return orderedGoals().map((company, index) => {
     const goal = company.goal;
     return [index + 1, company.name, goal.category, goal.business_day || "", dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day)),
-      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.status === "Recebido" ? `Recebido · ${brasilia(receipt.received_at)}` : receipt?.status || "Pendente"; })];
+      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.received_at ? `${receipt.status === "Recebido" ? "Completo" : receipt.status} · ${brasilia(receipt.received_at)}` : receipt?.status || "Pendente"; })];
   });
 }
 function crc32(bytes) {
@@ -635,12 +639,6 @@ document.addEventListener("change", (event) => {
     const date = plannedDate(state.month, day);
     if (day && !date) return toast("Este mês não possui tantos dias úteis. Escolha um número menor.");
     saveGoal(id, { business_day: day, planned_date: date });
-  } else if (action === "receipt") {
-    if (!state.targets.some((item) => item.company_id === id && item.competence === state.month)) saveGoal(id, {});
-    const received_at = element.value === "Recebido" ? new Date().toISOString() : null;
-    const row = { company_id: id, competence: state.month, department, status: element.value || "Pendente", received_at, updated_by: state.member.id };
-    changeLocal("receipts", row, ["company_id", "competence", "department"]);
-    enqueue({ kind: "upsert", table: "fc_receipts", row, conflict: "company_id,competence,department" });
   }
 });
 document.addEventListener("click", async (event) => {
@@ -760,3 +758,4 @@ client.auth.onAuthStateChange((_event, session) => {
   else renderAuth();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
+
