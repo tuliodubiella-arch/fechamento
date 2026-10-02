@@ -35,6 +35,7 @@ function renderReceiptPanel() {
   const company = state.companies.find((item) => item.id === companyId);
   if (!company) return "";
   const history = receiptDeliveriesFor(companyId, department);
+  const draft = receiptEditor.draft || {};
   const pending = pendingReceiptItems.filter((item) => item.user_id === state.member?.id && item.row.company_id === companyId
     && item.row.competence === state.month && item.row.department === department);
   const entries = [...history.map((item) => ({ ...item, pending: false })), ...pending.map((item) => ({ ...item.row, pending: true }))]
@@ -42,10 +43,10 @@ function renderReceiptPanel() {
   return `<section class="panel receipt-panel" id="receipt-panel"><div class="panel-head"><div><h2>Entregas de ${esc(department.toUpperCase())}</h2><p>${esc(company.name)} · ${esc(monthName(state.month))}</p></div><button class="btn compact" type="button" data-action="receipt-close">Fechar</button></div><div class="panel-body">
     ${!state.receiptFeatureReady ? '<div class="notice warn">O cadastro de entregas ainda está sendo configurado. Os registros anteriores permanecem preservados.</div>' : ""}
     ${!isHistorical() && state.receiptFeatureReady ? `<form id="receipt-form" class="receipt-form">
-      <label class="field"><span>Data e hora do e-mail recebido · Brasília/DF</span><input id="receipt-delivered-at" name="delivered_at" class="input" type="text" inputmode="text" autocomplete="off" placeholder="qui 01/10/2026 11:45" required><small>Cole o horário mostrado no e-mail: qui 01/10/2026 11:45 ou 01/10/2026 11:45. Não use o horário do lançamento no painel.</small></label>
-      <label class="field"><span>Esta entrega foi parcial ou completa?</span><select name="completeness" class="select" required><option value="">Selecione</option><option value="Parcial">Parcial — mantém o item aberto</option><option value="Completa">Completa — encerra o item</option></select></label>
+      <label class="field"><span>Data e hora do e-mail recebido · Brasília/DF</span><input id="receipt-delivered-at" name="delivered_at" class="input" type="text" inputmode="text" autocomplete="off" placeholder="qui 01/10/2026 11:45" value="${esc(draft.deliveredAt || "")}" required><small>Cole o horário mostrado no e-mail: qui 01/10/2026 11:45 ou 01/10/2026 11:45. Não use o horário do lançamento no painel.</small></label>
+      <label class="field"><span>Esta entrega foi parcial ou completa?</span><select name="completeness" class="select" required><option value="" ${!draft.completeness ? "selected" : ""}>Selecione</option><option value="Parcial" ${draft.completeness === "Parcial" ? "selected" : ""}>Parcial — mantém o item aberto</option><option value="Completa" ${draft.completeness === "Completa" ? "selected" : ""}>Completa — encerra o item</option></select></label>
       <div class="receipt-preview" id="receipt-status-preview" role="status" aria-live="polite">Cole a data e hora do e-mail e informe se a entrega foi parcial ou completa.</div>
-      <label class="field"><span>O que foi entregue ou ainda falta? (opcional)</span><textarea name="note" class="input" rows="2" maxlength="500"></textarea></label>
+      <label class="field"><span>O que foi entregue ou ainda falta? (opcional)</span><textarea name="note" class="input" rows="2" maxlength="500">${esc(draft.note || "")}</textarea></label>
       <button class="btn primary" type="submit">Registrar entrega</button></form>` : ""}
     <h3 class="section-title">Histórico de recebimentos</h3><div class="receipt-history">${entries.length ? entries.map((item) => `<div class="receipt-entry"><div><strong>${item.completeness === "Completa" ? "Recebido" : "Recebido parcial"}${item.pending ? " · aguardando sincronização" : ""}</strong><small>E-mail recebido em ${brasilia(item.delivered_at)}</small>${item.source === "legacy" ? '<small>Registro anterior; horário do lançamento original não disponível.</small>' : `<small>Lançado no painel em ${brasilia(item.recorded_at)}</small>`}${item.note ? `<p>${esc(item.note)}</p>` : ""}</div>${item.evidence_path ? `<button class="btn compact" type="button" data-action="receipt-view" data-id="${esc(item.id)}" ${item.pending ? 'data-pending="true"' : ""}>Ver print anterior</button>` : ""}</div>`).join("") : '<p class="muted">Nenhuma entrega registrada para este setor neste mês.</p>'}</div>
   </div></section>`;
@@ -158,7 +159,7 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id, department } = button.dataset;
   if (action === "receipt-open") {
-    receiptEditor = { companyId: id, department };
+    receiptEditor = { companyId: id, department, draft: {} };
     render(); document.getElementById("receipt-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (action === "receipt-close") {
     receiptEditor = null; render();
@@ -179,17 +180,18 @@ document.addEventListener("click", async (event) => {
   }
 });
 document.addEventListener("change", (event) => {
-  if (event.target.name === "completeness" && event.target.closest("#receipt-form")) return updateReceiptPreview();
+  if (event.target.name === "completeness" && event.target.closest("#receipt-form")) {
+    if (receiptEditor) receiptEditor.draft.completeness = event.target.value;
+    return updateReceiptPreview();
+  }
   if (event.target.dataset.action !== "receipt-status" || !state.receiptFeatureReady || isHistorical() || !state.member) return;
   const { id, department } = event.target.dataset, nextStatus = event.target.value;
   const current = receiptFor(id, department)?.status || "Pendente";
   if (nextStatus === current && !pendingReceiptItems.some((item) => item.user_id === state.member.id
     && item.row.company_id === id && item.row.competence === state.month && item.row.department === department)) return;
   if (nextStatus === "Parcial" || nextStatus === "Recebido") {
-    receiptEditor = { companyId: id, department };
+    receiptEditor = { companyId: id, department, draft: { completeness: nextStatus === "Recebido" ? "Completa" : "Parcial" } };
     render();
-    document.querySelector('#receipt-form [name="completeness"]').value = nextStatus === "Recebido" ? "Completa" : "Parcial";
-    updateReceiptPreview();
     document.getElementById("receipt-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
@@ -202,7 +204,11 @@ document.addEventListener("change", (event) => {
   enqueue({ kind: "upsert", table: "fc_receipts", row, conflict: "company_id,competence,department" });
 });
 document.addEventListener("input", (event) => {
-  if (event.target.id === "receipt-delivered-at") updateReceiptPreview();
+  if (!receiptEditor || !event.target.closest("#receipt-form")) return;
+  if (event.target.id === "receipt-delivered-at") {
+    receiptEditor.draft.deliveredAt = event.target.value;
+    updateReceiptPreview();
+  } else if (event.target.name === "note") receiptEditor.draft.note = event.target.value;
 });
 document.addEventListener("submit", async (event) => {
   if (event.target.id !== "receipt-form") return;

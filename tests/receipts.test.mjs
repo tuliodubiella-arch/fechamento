@@ -27,3 +27,19 @@ test("a interface nova não pede print e mantém o histórico anterior", () => {
   assert.match(source, /Ver print anterior/);
   assert.match(source, /source: "manual"/);
 });
+
+test("o rascunho do e-mail e da resposta parcial sobrevive à atualização da tela", () => {
+  context.state = { companies: [{ id: "cap", name: "CAP Administração Portuária Ltda" }], month: "2026-09",
+    member: { id: "member" }, receiptDeliveries: [], receiptFeatureReady: true };
+  context.esc = (value) => String(value ?? "").replaceAll('"', "&quot;");
+  context.monthName = () => "setembro de 2026";
+  context.brasilia = (value) => value;
+  context.isHistorical = () => false;
+  vm.runInContext(`receiptEditor = { companyId: "cap", department: "financeiro", draft: {
+    deliveredAt: "qui 01/10/2026 11:45", completeness: "Parcial", note: "Falta um documento"
+  } };`, context);
+  const html = vm.runInContext("renderReceiptPanel()", context);
+  assert.match(html, /value="qui 01\/10\/2026 11:45"/);
+  assert.match(html, /value="Parcial" selected/);
+  assert.match(html, /Falta um documento/);
+});

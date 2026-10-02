@@ -509,6 +509,7 @@ function render() {
     ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div></main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyStatusFilter();
+  if (state.tab === "Metas") updateReceiptPreview();
 }
 function changeLocal(table, row, keys) {
   const array = state[table];
@@ -735,7 +736,7 @@ document.addEventListener("change", (event) => {
     state.statusFilters = executionStatuses.filter((item) => state.statusFilters.includes(item));
     applyStatusFilter(); return;
   }
-  if (element.id === "month") { state.month = element.value; state.query = ""; render(); if (state.online) void loadData(); return; }
+  if (element.id === "month") { state.month = element.value; state.query = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
