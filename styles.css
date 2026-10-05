@@ -34,12 +34,15 @@
 .wide-workspace .panel{margin:10px 0}
 .wide-workspace .table-wrap{max-height:80vh}
 .execution-filters{grid-template-columns:minmax(180px,2fr) repeat(4,minmax(135px,1fr));gap:8px;padding:10px 12px}
+.execution-panel{overflow:visible}
+.execution-filters{position:relative;z-index:10}
 .multi-filter{position:relative;min-width:0}
 .multi-filter summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .multi-filter summary::-webkit-details-marker{display:none}
 .multi-filter summary::after{content:"▾";flex:none;color:#64748b}
 .multi-filter[open] summary{border-color:#f9b31c;box-shadow:0 0 0 3px #f9b31c33}
 .multi-filter-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:8;width:max(100%,220px);max-width:min(340px,80vw);max-height:320px;overflow:auto;padding:8px;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 12px 24px #0f172a24}
+.execution-filters .multi-filter:last-child .multi-filter-menu{left:auto;right:0}
 .multi-filter-menu label{display:flex;align-items:center;gap:9px;padding:8px 6px;cursor:pointer;white-space:normal}
 .multi-filter-menu label:hover{background:#f1f5f9;border-radius:6px}
 .multi-filter-menu input{accent-color:#a97000;flex:none}
