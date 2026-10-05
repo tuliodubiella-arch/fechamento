@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.05.1";
+const APP_VERSION = "2026.10.05.2";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -16,7 +16,7 @@ const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel", month: "2026-09", query: "",
-  companyFilter: "", ownerFilter: "", statusFilters: [], online: navigator.onLine,
+  companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
   invitePendingIds: [], inviteStatus: "idle",
@@ -264,8 +264,9 @@ function monthlyTasks() {
   });
 }
 function statusOf(task) { return task.historic ? task.status || "Não iniciado" : taskState(task.id)?.status || "Não iniciado"; }
+function executionGroup(task) { return task.group_name?.trim() || "OUTROS"; }
 function badge(status) {
-  const tone = status === "Finalizado" || status === "Concluída" ? "done" : status === "Em andamento" ? "running" : status === "Pausado" ? "paused" : "";
+  const tone = status === "Finalizado" || status === "Concluída" ? "done" : status === "Em andamento" ? "running" : status === "Pausado" ? "paused" : "not-started";
   return `<span class="badge ${tone}">${esc(status)}</span>`;
 }
 function renderAuth() {
@@ -303,34 +304,42 @@ function renderPanel() {
     ${slowest.length ? slowest.map((item) => `<div class="slow-row"><span title="${esc(item.company_name)}">${esc(item.account)}<small>${esc(item.company_name)}</small></span><strong>${duration(item.seconds)}</strong></div>`).join("") : '<div class="empty">Os tempos aparecerão após o primeiro PLAY.</div>'}</div></section></div>`;
 }
 function renderExecution() {
-  const tasks = monthlyTasks().filter((item) => {
+  const monthTasks = monthlyTasks();
+  const tasks = monthTasks.filter((item) => {
     const text = `${item.account} ${item.group_name || ""} ${item.company_name} ${item.owner_name}`.toLocaleLowerCase("pt-BR");
     return text.includes(state.query.toLocaleLowerCase("pt-BR")) && (!state.companyFilter || item.company_id === state.companyFilter)
       && (!state.ownerFilter || item.responsible_id === state.ownerFilter);
   });
+  const groups = [...new Set(monthTasks.map(executionGroup))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const statusLabel = state.statusFilters.length ? state.statusFilters.length === 1 ? state.statusFilters[0] : `${state.statusFilters.length} status selecionados` : "Todos os status";
-  return `<section class="panel"><div class="filters"><input id="search" class="input" placeholder="Buscar conta, empresa, grupo…" value="${esc(state.query)}">
+  const groupLabel = state.groupFilters.length ? state.groupFilters.length === 1 ? state.groupFilters[0] : `${state.groupFilters.length} grupos selecionados` : "Todos os grupos sintéticos";
+  return `<section class="panel execution-panel"><div class="filters execution-filters"><input id="search" class="input" placeholder="Buscar conta, empresa, grupo…" value="${esc(state.query)}">
     <select id="company-filter" class="select"><option value="">Todas as empresas</option>${state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}" ${state.companyFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
     <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
-    <details id="status-filter" class="status-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="status-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos</button></div></details></div>
+    <details id="group-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por grupo sintético">${esc(groupLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Grupos sintéticos">${groups.map((item) => `<label><input type="checkbox" data-group-filter="${esc(item)}" ${state.groupFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-group-filter" ${state.groupFilters.length ? "" : "disabled"}>Mostrar todos os grupos</button></div></details>
+    <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
-    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); return `<tr data-execution-status="${esc(filterStatus)}"><td><strong>${esc(task.account)}</strong><small>${esc(task.group_name || "")}</small></td><td>${esc(task.company_name)}</td>
-      <td>${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
-      <td>${badge(statusOf(task))}</td><td class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
-      <td>${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td>${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
-      <td>${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
-      <td>${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
+    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small></td><td data-label="Empresa">${esc(task.company_name)}</td>
+      <td data-label="Responsável">${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
+      <td data-label="Status">${badge(statusOf(task))}</td><td data-label="Tempo" class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
+      <td data-label="Início · Brasília">${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td data-label="Fim · Brasília">${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
+      <td data-label="Execução">${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
+      <td data-label="Manutenção">${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
-function applyStatusFilter() {
-  const filter = $("#status-filter"); if (!filter) return;
-  const selected = state.statusFilters;
-  filter.querySelector("summary").textContent = selected.length ? selected.length === 1 ? selected[0] : `${selected.length} status selecionados` : "Todos os status";
-  filter.querySelector('[data-action="clear-status-filter"]').disabled = !selected.length;
+function applyExecutionFilters() {
+  const statusFilter = $("#status-filter"), groupFilter = $("#group-filter");
+  if (!statusFilter || !groupFilter) return;
+  const statuses = state.statusFilters, groups = state.groupFilters;
+  statusFilter.querySelector("summary").textContent = statuses.length ? statuses.length === 1 ? statuses[0] : `${statuses.length} status selecionados` : "Todos os status";
+  statusFilter.querySelector('[data-action="clear-status-filter"]').disabled = !statuses.length;
+  groupFilter.querySelector("summary").textContent = groups.length ? groups.length === 1 ? groups[0] : `${groups.length} grupos selecionados` : "Todos os grupos sintéticos";
+  groupFilter.querySelector('[data-action="clear-group-filter"]').disabled = !groups.length;
   let visible = 0;
   document.querySelectorAll("[data-execution-status]").forEach((row) => {
-    const match = !selected.length || selected.includes(row.dataset.executionStatus);
+    const match = (!statuses.length || statuses.includes(row.dataset.executionStatus))
+      && (!groups.length || groups.includes(row.dataset.executionGroup));
     row.classList.toggle("hidden", !match);
     if (match) visible++;
   });
@@ -344,17 +353,17 @@ function renderGoals() {
   const printRows = companies.map((company, index) => [index + 1, company.name, company.goal.category,
     company.goal.business_day || "—", dateBR(isHistorical() ? company.goal.legacy_deadline : plannedDate(state.month, company.goal.business_day))]);
   const printDensity = companies.length > 52 ? "very-dense" : companies.length > 38 ? "dense" : "";
-  const goalTable = (rows) => `<div class="table-wrap"><table style="min-width:1680px"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${esc(item)}</th>`).join("")}<th>Mover</th></tr></thead>
-    <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td><strong>${esc(company.name)}</strong></td>
-      <td><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
-      <td><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""} style="width:75px"></td>
-      <td><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td>${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
+  const goalTable = (rows) => `<div class="table-wrap"><table class="goals-table"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${esc(item)}</th>`).join("")}<th>Mover</th></tr></thead>
+    <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr><td data-label="Ordem"><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td data-label="Empresa"><strong>${esc(company.name)}</strong></td>
+      <td data-label="Prioridade"><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
+      <td data-label="Dia útil"><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""}></td>
+      <td data-label="Previsão"><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td data-label="Data de entrega">${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
       ${departments.map((department) => renderReceiptCell(company, department)).join("")}
-      <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
-  return `<section class="panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem mensal de fechamento. HOLDING primeiro; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
+      <td data-label="Mover"><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
+  return `<section class="panel goals-panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem mensal de fechamento. HOLDING primeiro; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
     ${pendingCompanies.length ? goalTable(pendingCompanies) : '<div class="empty">Nenhuma empresa com entrega pendente neste mês.</div>'}
     <div class="footer-note">Uma empresa passa ao quadro abaixo quando Financeiro, RH, Estoque, Fiscal e Balancete estiverem como Recebido ou N/A. Dias úteis excluem fins de semana e feriados cadastrados.</div></section>${renderReceiptPanel()}
-    <section class="panel"><div class="panel-head"><div><h2>Empresas com entregas concluídas · ${deliveredCompanies.length}</h2><p>Todos os cinco itens foram recebidos ou marcados como N/A. A ordem original é preservada.</p></div></div>
+    <section class="panel goals-panel"><div class="panel-head"><div><h2>Empresas com entregas concluídas · ${deliveredCompanies.length}</h2><p>Todos os cinco itens foram recebidos ou marcados como N/A. A ordem original é preservada.</p></div></div>
     ${deliveredCompanies.length ? goalTable(deliveredCompanies) : '<div class="empty">As empresas com todas as entregas resolvidas aparecerão aqui.</div>'}</section>
     <section class="print-sheet ${printDensity}"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1></div></div><table><colgroup><col style="width:6%"><col style="width:51%"><col style="width:16%"><col style="width:10%"><col style="width:17%"></colgroup><thead><tr>${["Nº", "Empresa", "Prioridade", "Dia útil", "Previsão"].map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
 }
@@ -510,10 +519,10 @@ function render() {
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
     <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
-    <main class="shell">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
+    <main class="shell ${state.tab === "Execução" || state.tab === "Metas" ? "wide-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div></main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
-  if (state.tab === "Execução") applyStatusFilter();
+  if (state.tab === "Execução") applyExecutionFilters();
   if (state.tab === "Metas") updateReceiptPreview();
 }
 function changeLocal(table, row, keys) {
@@ -739,9 +748,14 @@ document.addEventListener("change", (event) => {
     const status = element.dataset.statusFilter;
     state.statusFilters = element.checked ? [...state.statusFilters, status] : state.statusFilters.filter((item) => item !== status);
     state.statusFilters = executionStatuses.filter((item) => state.statusFilters.includes(item));
-    applyStatusFilter(); return;
+    applyExecutionFilters(); return;
   }
-  if (element.id === "month") { state.month = element.value; state.query = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
+  if (element.matches("[data-group-filter]")) {
+    const group = element.dataset.groupFilter;
+    state.groupFilters = element.checked ? [...state.groupFilters, group] : state.groupFilters.filter((item) => item !== group);
+    applyExecutionFilters(); return;
+  }
+  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; receiptEditor = null; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
@@ -769,7 +783,8 @@ document.addEventListener("click", async (event) => {
     if (!confirm(`Confirma que revisou as ${state.queue.length} operações pendentes e salvou a cópia de segurança? Elas serão enviadas na ordem original. Em caso de erro, o envio será interrompido.`)) return;
     state.recoveryApproved = true; state.syncError = ""; render(); await flush(); return;
   }
-  if (action === "clear-status-filter") { state.statusFilters = []; document.querySelectorAll("[data-status-filter]").forEach((input) => { input.checked = false; }); applyStatusFilter(); return; }
+  if (action === "clear-status-filter") { state.statusFilters = []; document.querySelectorAll("[data-status-filter]").forEach((input) => { input.checked = false; }); applyExecutionFilters(); return; }
+  if (action === "clear-group-filter") { state.groupFilters = []; document.querySelectorAll("[data-group-filter]").forEach((input) => { input.checked = false; }); applyExecutionFilters(); return; }
   if (action === "tab") {
     state.tab = button.dataset.tab;
     if (state.tab === "Versões" && !state.member?.is_admin) state.tab = "Painel";
@@ -780,7 +795,7 @@ document.addEventListener("click", async (event) => {
   else if (action === "edit-time") await editActivityTime(id, button);
   else if (action === "reset-activity") await resetActivity(id, button);
   else if (action === "retire-task") await retireTask(id, button);
-  else if (action === "choose-month") { state.month = button.dataset.month; state.tab = "Execução"; render(); }
+  else if (action === "choose-month") { state.month = button.dataset.month; state.groupFilters = []; state.tab = "Execução"; render(); }
   else if (action === "promote-member") await promoteMember(id, button);
   else if (action === "resend-invite") {
     if (!state.online) return toast("O reenvio exige conexão com a internet.");

@@ -33,7 +33,7 @@ function renderReceiptCell(company, department) {
   const count = receiptDeliveriesFor(company.id, department).length;
   const pending = pendingRows.length;
   const canRegister = !isHistorical() && state.receiptFeatureReady;
-  return `<td class="receipt-cell"><strong class="receipt-status ${status === "Recebido" ? "complete" : status === "Parcial" ? "partial" : ""}">${esc(receiptStatusLabel(status))}</strong>
+  return `<td class="receipt-cell" data-label="${esc(department)}"><strong class="receipt-status ${status === "Recebido" ? "complete" : status === "Parcial" ? "partial" : ""}">${esc(receiptStatusLabel(status))}</strong>
     <small>${lastEmailAt ? brasilia(lastEmailAt) : status === "N/A" ? "Não aplicável" : "Aguardando"}</small>
     ${canRegister ? `<select class="select receipt-status-select" aria-label="Status de ${esc(department)} para ${esc(company.name)}" data-action="receipt-status" data-id="${esc(company.id)}" data-department="${department}">
       <option value="Pendente" ${status === "Pendente" ? "selected" : ""}>Pendente</option><option value="Parcial" ${status === "Parcial" ? "selected" : ""}>Recebido parcial</option><option value="Recebido" ${status === "Recebido" ? "selected" : ""}>Recebido</option><option value="N/A" ${status === "N/A" ? "selected" : ""}>N/A</option></select>` : ""}

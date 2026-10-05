@@ -25,10 +25,10 @@ test("metas separam entregas pendentes das completas sem renumerar a ordem mensa
   const pending = visible.slice(0, visible.indexOf("Empresas com entregas concluídas"));
   const delivered = visible.slice(visible.indexOf("Empresas com entregas concluídas"));
   assert.match(pending, /Entregas pendentes · 2 empresa\(s\)/);
-  assert.match(pending, /<strong>1<\/strong><\/td><td><strong>Empresa A/);
-  assert.match(pending, /<strong>3<\/strong><\/td><td><strong>Empresa C/);
-  assert.doesNotMatch(pending, /<td><strong>Empresa B/);
-  assert.match(delivered, /<strong>2<\/strong><\/td><td><strong>Empresa B/);
-  assert.doesNotMatch(delivered, /<td><strong>Empresa A/);
+  assert.match(pending, /<strong>1<\/strong><\/td><td data-label="Empresa"><strong>Empresa A/);
+  assert.match(pending, /<strong>3<\/strong><\/td><td data-label="Empresa"><strong>Empresa C/);
+  assert.doesNotMatch(pending, /<td data-label="Empresa"><strong>Empresa B/);
+  assert.match(delivered, /<strong>2<\/strong><\/td><td data-label="Empresa"><strong>Empresa B/);
+  assert.doesNotMatch(delivered, /<td data-label="Empresa"><strong>Empresa A/);
   assert.match(visible, /<th>balancete<\/th>/);
 });
