@@ -75,12 +75,12 @@
   .execution-panel .table-wrap{max-height:none;overflow:visible}
   .execution-table,.execution-table tbody{display:block;width:100%}
   .execution-table thead{display:none}
-  .execution-table tbody tr{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid #e2e8f0;padding:6px;background:#fff}
+  .execution-table tbody tr{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-top:1px solid #e2e8f0;padding:6px;background:#fff}
   .execution-table tbody tr:nth-child(even){background:#fafafa}
   .execution-table td{display:block;min-width:0;border:0;padding:5px 7px}
   .execution-table td::before{content:attr(data-label);display:block;color:#64748b;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:.05em;margin-bottom:3px}
   .execution-table td:last-child{border-left:0;background:transparent}
-  .goals-table tbody tr{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .goals-table tbody tr{grid-template-columns:repeat(6,minmax(0,1fr))}
 }
 @media(max-width:900px){.execution-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.execution-table tbody tr{grid-template-columns:repeat(2,minmax(0,1fr))}.goals-table tbody tr{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.execution-filters{grid-template-columns:1fr}.goals-table tbody tr{grid-template-columns:repeat(2,minmax(0,1fr))}}
