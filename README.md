@@ -45,6 +45,7 @@ Na migração inicial, os apontamentos de teste de setembro/2026 foram omitidos 
 - **Balancete** usa o mesmo registro de entregas parciais ou completas dos outros quatro setores. O campo **Data de entrega** continua independente e indica a conclusão das rotinas de execução.
 - **Metas** mostra acima as empresas com ao menos um dos cinco itens pendente ou parcialmente recebido; abaixo, as empresas cujos cinco itens estão como **Recebido** ou **N/A**. A ordem mensal é mantida em ambos os quadros e nas exportações. Uma entrega ainda aguardando sincronização aparece marcada como tal no navegador em que foi lançada.
 - Em **Execução**, o filtro **Grupo sintético** aceita várias seleções ao mesmo tempo e combina com os demais filtros. Os status usam cores mais fortes e letras maiores. **Execução** e **Metas** ocupam a largura da página; em telas menores, cada linha se reorganiza em blocos para manter todos os campos visíveis sem rolagem horizontal.
+- Em **Execução**, as opções dos filtros Empresa, Responsável e Grupo sintético aparecem sempre em ordem alfabética pelo nome, independentemente da ordem de cadastro.
 - O organograma completo, inclusive a visualização por usuário, exige perfil de administrador. A interface e a política de leitura do banco aplicam essa restrição.
 - Os dias úteis excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi de 2026 e feriados adicionais cadastrados no painel. Confirme feriados locais de anos futuros no cadastro.
 

@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.05.4";
+const APP_VERSION = "2026.10.05.5";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -348,13 +348,16 @@ function renderExecution() {
     return text.includes(state.query.toLocaleLowerCase("pt-BR")) && (!state.companyFilter || item.company_id === state.companyFilter)
       && (!state.ownerFilter || item.responsible_id === state.ownerFilter);
   });
-  const groups = [...new Set(monthTasks.map(executionGroup))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
+  const alphabetical = new Intl.Collator("pt-BR", { sensitivity: "base" });
+  const groups = [...new Set(monthTasks.map(executionGroup))].sort(alphabetical.compare);
+  const companies = state.companies.filter((item) => item.active).sort((a, b) => alphabetical.compare(a.name, b.name));
+  const members = state.members.filter((item) => item.active).sort((a, b) => alphabetical.compare(a.name, b.name));
+  const memberOptions = members.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const statusLabel = state.statusFilters.length ? state.statusFilters.length === 1 ? state.statusFilters[0] : `${state.statusFilters.length} status selecionados` : "Todos os status";
   const groupLabel = state.groupFilters.length ? state.groupFilters.length === 1 ? state.groupFilters[0] : `${state.groupFilters.length} grupos selecionados` : "Todos os grupos sintéticos";
   return `<section class="panel execution-panel"><div class="filters execution-filters"><input id="search" class="input" placeholder="Buscar conta, empresa, grupo…" value="${esc(state.query)}">
-    <select id="company-filter" class="select"><option value="">Todas as empresas</option>${state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}" ${state.companyFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
-    <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
+    <select id="company-filter" class="select"><option value="">Todas as empresas</option>${companies.map((item) => `<option value="${esc(item.id)}" ${state.companyFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
+    <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${members.map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
     <details id="group-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por grupo sintético">${esc(groupLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Grupos sintéticos">${groups.map((item) => `<label><input type="checkbox" data-group-filter="${esc(item)}" ${state.groupFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-group-filter" ${state.groupFilters.length ? "" : "disabled"}>Mostrar todos os grupos</button></div></details>
     <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>

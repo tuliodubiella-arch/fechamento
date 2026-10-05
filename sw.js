@@ -1,5 +1,5 @@
-const CACHE = "fc-short-shell-v20";
-const SHELL = ["./", "./index.html", "./app.js?v=2026.10.05.4", "./receipts.js?v=2026.10.05.4", "./styles.css?v=2026.10.05.4", "./brand/tokens.css", "./brand/overrides.css", "./brand/logo-principal.png", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
+const CACHE = "fc-short-shell-v21";
+const SHELL = ["./", "./index.html", "./app.js?v=2026.10.05.5", "./receipts.js?v=2026.10.05.5", "./styles.css?v=2026.10.05.5", "./brand/tokens.css", "./brand/overrides.css", "./brand/logo-principal.png", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"];
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
