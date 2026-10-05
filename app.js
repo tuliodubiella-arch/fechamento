@@ -6,9 +6,9 @@ const $ = (selector) => document.querySelector(selector);
 const field = (form, name) => form.elements.namedItem(name);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 const uid = () => crypto.randomUUID();
-const departments = ["financeiro", "rh", "estoque", "fiscal"];
+const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.01.6";
+const APP_VERSION = "2026.10.05.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -339,21 +339,26 @@ function applyStatusFilter() {
 }
 function renderGoals() {
   const companies = orderedGoals();
+  const pendingCompanies = companies.filter((company) => !companyDeliveriesComplete(company.id));
+  const deliveredCompanies = companies.filter((company) => companyDeliveriesComplete(company.id));
   const printRows = companies.map((company, index) => [index + 1, company.name, company.goal.category,
     company.goal.business_day || "—", dateBR(isHistorical() ? company.goal.legacy_deadline : plannedDate(state.month, company.goal.business_day))]);
   const printDensity = companies.length > 52 ? "very-dense" : companies.length > 38 ? "dense" : "";
-  return `<section class="panel"><div class="panel-head"><div><h2>Ordem mensal de fechamento</h2><p>HOLDING primeiro. O dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
-    <div class="table-wrap"><table style="min-width:1500px"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${item}</th>`).join("")}<th>Mover</th></tr></thead>
-    <tbody>${companies.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${index + 1}</strong></td><td><strong>${esc(company.name)}</strong></td>
+  const goalTable = (rows) => `<div class="table-wrap"><table style="min-width:1680px"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${esc(item)}</th>`).join("")}<th>Mover</th></tr></thead>
+    <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr><td><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td><strong>${esc(company.name)}</strong></td>
       <td><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
       <td><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""} style="width:75px"></td>
       <td><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td>${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
       ${departments.map((department) => renderReceiptCell(company, department)).join("")}
-      <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || companies[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === companies.length - 1 || companies[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>
-    <div class="footer-note">Dias úteis: excluem sábados, domingos, feriados nacionais, 14/11 em Cascavel/PR, Corpus Christi 2026 e feriados adicionais cadastrados.</div></section>${renderReceiptPanel()}
+      <td><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem mensal de fechamento. HOLDING primeiro; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
+    ${pendingCompanies.length ? goalTable(pendingCompanies) : '<div class="empty">Nenhuma empresa com entrega pendente neste mês.</div>'}
+    <div class="footer-note">Uma empresa passa ao quadro abaixo quando Financeiro, RH, Estoque, Fiscal e Balancete estiverem como Recebido ou N/A. Dias úteis excluem fins de semana e feriados cadastrados.</div></section>${renderReceiptPanel()}
+    <section class="panel"><div class="panel-head"><div><h2>Empresas com entregas concluídas · ${deliveredCompanies.length}</h2><p>Todos os cinco itens foram recebidos ou marcados como N/A. A ordem original é preservada.</p></div></div>
+    ${deliveredCompanies.length ? goalTable(deliveredCompanies) : '<div class="empty">As empresas com todas as entregas resolvidas aparecerão aqui.</div>'}</section>
     <section class="print-sheet ${printDensity}"><div class="print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Ordem de fechamento · ${esc(monthName(state.month))}</h1></div></div><table><colgroup><col style="width:6%"><col style="width:51%"><col style="width:16%"><col style="width:10%"><col style="width:17%"></colgroup><thead><tr>${["Nº", "Empresa", "Prioridade", "Dia útil", "Previsão"].map((item) => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${printRows.map((row) => `<tr>${row.map((value) => `<td>${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table><footer>Grupo Cavalca · Portal de Fechamento Contábil</footer></section>`;
 }
-const goalHeaders = ["Ordem", "Empresa", "Prioridade", "Dia útil", "Previsão", "Data de entrega", "Financeiro", "RH", "Estoque", "Fiscal"];
+const goalHeaders = ["Ordem", "Empresa", "Prioridade", "Dia útil", "Previsão", "Data de entrega", "Financeiro", "RH", "Estoque", "Fiscal", "Balancete"];
 function orderedGoals() {
   return state.companies.filter((item) => isHistorical()
     ? state.targets.some((goal) => goal.company_id === item.id && goal.competence === state.month) : item.active)
@@ -406,7 +411,7 @@ function exportGoalsXlsx() {
     `<row r="2" ht="25">${goalHeaders.map((value, index) => cell(value, `${String.fromCharCode(65 + index)}2`, 2)).join("")}</row>`,
     ...exportRows.map((values, rowIndex) => `<row r="${rowIndex + 3}" ht="22">${values.map((value, columnIndex) => cell(value, `${String.fromCharCode(65 + columnIndex)}${rowIndex + 3}`, rowIndex % 2 ? 4 : 3)).join("")}</row>`),
   ];
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="9" customWidth="1"/><col min="2" max="2" width="42" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="6" width="22" customWidth="1"/><col min="7" max="10" width="24" customWidth="1"/></cols><sheetData>${rows.join("")}</sheetData><autoFilter ref="A2:J${Math.max(2, exportRows.length + 2)}"/><mergeCells count="1"><mergeCell ref="A1:J1"/></mergeCells></worksheet>`;
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="9" customWidth="1"/><col min="2" max="2" width="42" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="6" width="22" customWidth="1"/><col min="7" max="11" width="24" customWidth="1"/></cols><sheetData>${rows.join("")}</sheetData><autoFilter ref="A2:K${Math.max(2, exportRows.length + 2)}"/><mergeCells count="1"><mergeCell ref="A1:K1"/></mergeCells></worksheet>`;
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="15"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF39373A"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF39373A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFB519"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>`;
   const files = {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
@@ -839,7 +844,8 @@ document.addEventListener("click", async (event) => {
     company.name = name; enqueue({ kind: "update", table: "fc_companies", where: { id }, values: { name } });
   } else if (action === "move") {
     const company = state.companies.find((item) => item.id === id); if (!company) return;
-    const ordered = state.companies.filter((item) => item.active).map((item) => ({ ...item, goal: targetFor(item) })).sort((a, b) => a.goal.category === b.goal.category ? a.goal.sort_order - b.goal.sort_order : a.goal.category === "HOLDING" ? -1 : 1);
+    const inDeliveredBoard = companyDeliveriesComplete(id);
+    const ordered = orderedGoals().filter((item) => companyDeliveriesComplete(item.id) === inDeliveredBoard);
     const index = ordered.findIndex((item) => item.id === id), other = ordered[index + (button.dataset.direction === "up" ? -1 : 1)];
     if (!other || other.goal.category !== ordered[index].goal.category) return;
     const previousOrder = ordered[index].goal.sort_order, nextOrder = other.goal.sort_order;

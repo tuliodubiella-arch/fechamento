@@ -62,7 +62,7 @@ create index if not exists fc_targets_month_idx on public.fc_targets(competence,
 create table if not exists public.fc_receipts (
   company_id text not null,
   competence text not null,
-  department text not null check(department in ('financeiro','rh','estoque','fiscal')),
+  department text not null check(department in ('financeiro','rh','estoque','fiscal','balancete')),
   status text not null check(status in ('Pendente','Recebido','N/A')),
   received_at timestamptz,
   updated_by uuid references public.fc_members(id),

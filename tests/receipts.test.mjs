@@ -43,3 +43,19 @@ test("o rascunho do e-mail e da resposta parcial sobrevive à atualização da t
   assert.match(html, /value="Parcial" selected/);
   assert.match(html, /Falta um documento/);
 });
+
+test("empresa só passa ao quadro de entregues quando todos os cinco itens foram resolvidos", () => {
+  context.state = { month: "2026-09", member: { id: "member" }, receipts: [
+    ...["financeiro", "rh", "estoque", "fiscal"].map((department) => ({ company_id: "cap", competence: "2026-09", department, status: "Recebido" })),
+  ], receiptDeliveries: [] };
+  context.departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
+  context.receiptFor = (companyId, department) => context.state.receipts.find((item) => item.company_id === companyId
+    && item.competence === context.state.month && item.department === department);
+  assert.equal(vm.runInContext('companyDeliveriesComplete("cap")', context), false);
+  context.state.receipts.push({ company_id: "cap", competence: "2026-09", department: "balancete", status: "Parcial" });
+  assert.equal(vm.runInContext('companyDeliveriesComplete("cap")', context), false);
+  context.state.receipts.at(-1).status = "N/A";
+  assert.equal(vm.runInContext('companyDeliveriesComplete("cap")', context), true);
+  context.state.month = "2026-10";
+  assert.equal(vm.runInContext('companyDeliveriesComplete("cap")', context), false);
+});

@@ -12,12 +12,23 @@ function receiptDeliveriesFor(companyId, department) {
   return state.receiptDeliveries.filter((item) => item.company_id === companyId && item.competence === state.month && item.department === department)
     .sort((a, b) => String(a.delivered_at).localeCompare(String(b.delivered_at)));
 }
+function pendingReceiptRows(companyId, department) {
+  return pendingReceiptItems.filter((item) => item.user_id === state.member?.id && item.row.company_id === companyId
+    && item.row.competence === state.month && item.row.department === department).map((item) => item.row);
+}
+function receiptStatusFor(companyId, department) {
+  const receipt = receiptFor(companyId, department);
+  const pendingRows = pendingReceiptRows(companyId, department);
+  return receipt?.status === "Recebido" || pendingRows.some((item) => item.completeness === "Completa") ? "Recebido"
+    : pendingRows.length ? "Parcial" : receipt?.status || "Pendente";
+}
+function companyDeliveriesComplete(companyId) {
+  return departments.every((department) => ["Recebido", "N/A"].includes(receiptStatusFor(companyId, department)));
+}
 function renderReceiptCell(company, department) {
   const receipt = receiptFor(company.id, department);
-  const pendingRows = pendingReceiptItems.filter((item) => item.user_id === state.member?.id && item.row.company_id === company.id
-    && item.row.competence === state.month && item.row.department === department).map((item) => item.row);
-  const status = receipt?.status === "Recebido" || pendingRows.some((item) => item.completeness === "Completa") ? "Recebido"
-    : pendingRows.length ? "Parcial" : receipt?.status || "Pendente";
+  const pendingRows = pendingReceiptRows(company.id, department);
+  const status = receiptStatusFor(company.id, department);
   const lastEmailAt = [receipt?.received_at, ...pendingRows.map((item) => item.delivered_at)].filter(Boolean).sort().at(-1);
   const count = receiptDeliveriesFor(company.id, department).length;
   const pending = pendingRows.length;
