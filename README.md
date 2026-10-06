@@ -32,6 +32,7 @@ Na migração inicial, os apontamentos de teste de setembro/2026 foram omitidos 
 ## Operação
 
 - **Painel Geral** mostra os indicadores da competência inteira. **Meu Painel** mostra somente as rotinas atribuídas ao usuário conectado, com progresso por empresa, tempo por grupo sintético e lista das próprias atividades. O botão **Abrir minhas tarefas em Execução** aplica o filtro do responsável. Nos meses históricos, a associação é pelo nome completo exato, apenas quando ele é único entre os usuários cadastrados.
+- A tipografia dos dois painéis foi ampliada nos cartões, gráficos e lista individual, mantendo tamanhos próprios para telas menores. Execução e Metas não foram alteradas por esse ajuste.
 - A conta de cada responsável usa e-mail e senha próprios. A pessoa convidada define a senha pelo link recebido. Se já usa o mesmo Supabase, entra com a senha existente.
 - Em **Cadastros**, o administrador pode reenviar o convite apenas enquanto ele estiver pendente. O reenvio usa a conta existente e cria um novo link; quem já confirmou o e-mail deve usar **Esqueci minha senha** se não conseguir entrar.
 - A primeira entrada em cada aparelho precisa de internet. Depois disso, a interface e os dados já carregados funcionam offline; alterações ficam em fila até a conexão voltar. Não limpe os dados do navegador enquanto houver registros pendentes.

@@ -2,6 +2,24 @@
 :root{--brand-ink:#39373a;--brand-gold:#f9b31c}
 .chart-list{display:grid;gap:14px;max-height:390px;overflow:auto}.chart-row{min-width:0}.chart-label{display:flex;justify-content:space-between;gap:12px;font-size:12px}.chart-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chart-label strong{white-space:nowrap}.chart-track{height:9px;background:#f0f2f4;border-radius:99px;margin:6px 0 3px;overflow:hidden}.chart-fill{height:100%;background:var(--brand-gold);border-radius:99px}.chart-fill.time{background:var(--brand-ink)}.chart-row small{color:#64748b}.print-sheet{display:none}
 .my-tasks-wrap{max-height:55vh}.my-tasks-table{min-width:650px}.my-tasks-table th:last-child,.my-tasks-table td:last-child{white-space:nowrap}
+.dashboard-workspace .tabs button{font-size:16px}
+.dashboard-workspace .card span{font-size:15px;color:#475569}
+.dashboard-workspace .card strong{font-size:clamp(26px,2.6vw,36px);overflow-wrap:anywhere}
+.dashboard-workspace .card small{font-size:14px;color:#64748b;line-height:1.4}
+.dashboard-workspace .panel-head h2{font-size:21px}
+.dashboard-workspace .panel-head p{font-size:15px;line-height:1.45}
+.dashboard-workspace .chart-label{font-size:15px;align-items:flex-start;line-height:1.35}
+.dashboard-workspace .chart-label span{overflow:visible;text-overflow:clip;white-space:normal}
+.dashboard-workspace .chart-row small{font-size:14px;line-height:1.4}
+.dashboard-workspace .slow-row{font-size:16px;line-height:1.4}
+.dashboard-workspace .slow-row span:first-child{max-width:72%;overflow:visible;text-overflow:clip;white-space:normal}
+.dashboard-workspace .slow-row small{display:block;font-size:14px;color:#64748b}
+.dashboard-workspace .my-tasks-table th{font-size:12px}
+.dashboard-workspace .my-tasks-table td{font-size:16px;line-height:1.4}
+.dashboard-workspace .my-tasks-table td small{font-size:14px}
+.dashboard-workspace .my-tasks-table .badge{font-size:14px;font-weight:700}
+.dashboard-workspace .panel-head .btn{font-size:14px}
+@media(max-width:600px){.dashboard-workspace .card strong{font-size:24px}}
 .update-list{display:grid;gap:10px;max-height:650px;overflow:auto}.update-entry{border:1px solid #e2e8f0;border-left:3px solid var(--brand-gold);border-radius:10px;padding:13px;background:#fff}.update-entry p{margin:10px 0;color:#334155;line-height:1.5}.update-entry small{color:#64748b}.update-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.update-heading strong{color:var(--brand-ink)}textarea.input{resize:vertical;min-height:105px}.actions{flex-wrap:wrap}.execution-table{min-width:1380px}.execution-table th:last-child,.execution-table td:last-child{border-left:2px solid #e2e8f0;background:#f8fafc}.execution-table th:last-child{background:#eef2f7}
 @media print{
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}

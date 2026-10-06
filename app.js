@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.05.6";
+const APP_VERSION = "2026.10.06.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -560,7 +560,7 @@ function render() {
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
     <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
-    <main class="shell ${state.tab === "Execução" || state.tab === "Metas" ? "wide-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
+    <main class="shell ${state.tab === "Execução" || state.tab === "Metas" ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div></main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyExecutionFilters();
