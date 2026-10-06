@@ -25,6 +25,7 @@
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   html,body{background:#fff!important;margin:0!important;padding:0!important}
   .topbar,.tabs,.shell>.panel,.shell>.two-col,.shell>.grid,.no-print,#toast{display:none!important}
+  .shell .goals-panel,.shell .receipt-panel{display:none!important}
   .shell{max-width:none;margin:0;padding:0}
   .print-sheet{display:block!important;color:#39373a;margin:0;padding:0;font-family:Arial,sans-serif}
   .print-brand{display:flex;align-items:center;gap:12px;border-bottom:3px solid #f9b31c;padding:0 0 8px;margin-bottom:10px;break-after:avoid}
