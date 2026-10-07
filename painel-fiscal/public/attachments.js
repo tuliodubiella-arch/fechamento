@@ -1,6 +1,6 @@
 const attachmentDrafts=new WeakMap();
 function attachmentField(){return `<div class="attachment-field"><label>Anexar prints (opcional)<input class="print-input" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><p>Selecione imagens ou cole um print com Ctrl+V neste formulário. Até 3 imagens, com 5 MB cada.</p><div class="print-previews" aria-live="polite"></div></div>`;}
-function attachmentsView(images){return images?.length?`<div class="saved-prints">${images.map(a=>`<a href="/api/attachments/${encodeURIComponent(a.id)}" target="_blank" rel="noopener" title="Abrir print em tamanho original"><img src="/api/attachments/${encodeURIComponent(a.id)}" alt="${esc(a.name)}" loading="lazy"><span>${esc(a.name)}</span></a>`).join('')}</div>`:'';}
+function attachmentsView(images){return images?.length?`<div class="saved-prints">${images.map(a=>`<a href="${esc(printURL(a))}" target="_blank" rel="noopener" title="Abrir print em tamanho original"><img src="${esc(printURL(a))}" alt="${esc(a.name)}" loading="lazy"><span>${esc(a.name)}</span></a>`).join('')}</div>`:'';}
 function releasePrints(){modal.querySelectorAll('form').forEach(form=>{const draft=attachmentDrafts.get(form);draft?.files.forEach(f=>URL.revokeObjectURL(f.url));});}
 function bindPrints(){modal.querySelectorAll('form:has(.print-input)').forEach(form=>{
  const draft={files:[],pending:0};attachmentDrafts.set(form,draft);
@@ -11,3 +11,5 @@ function bindPrints(){modal.querySelectorAll('form:has(.print-input)').forEach(f
  });}
 function printPayload(form){const draft=attachmentDrafts.get(form);if(draft?.pending)throw Error('Aguarde a leitura dos prints antes de salvar.');return (draft?.files||[]).map(({name,type,data})=>({name,type,data}));}
 modal.addEventListener('close',releasePrints);
+
+function printURL(image){if(window.FiscalCloud)return image.url||'';return '/api/attachments/'+encodeURIComponent(image.id);}

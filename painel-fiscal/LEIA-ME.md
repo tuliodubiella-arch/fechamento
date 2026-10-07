@@ -1,5 +1,9 @@
 # Painel Fiscal — Grupo Cavalca
 
+## Versão publicada
+
+Abra https://tuliodubiella-arch.github.io/fechamento/painel-fiscal/. A versão online usa GitHub Pages e Supabase. Os administradores existentes do fechamento entram com o mesmo e-mail e senha e cadastram a equipe em **Equipe**. Consulte `PUBLICACAO.md` para detalhes. As instruções a seguir tratam da versão local, com dados separados da versão publicada.
+
 Versão local para validar o fluxo com a equipe antes de publicar. Identidade baseada no guia do Grupo Cavalca: logo oficial sem alterações, Raleway, laranja #F7AE14 e cinzas institucionais.
 
 ## Abrir para teste
