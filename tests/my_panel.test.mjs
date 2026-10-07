@@ -47,3 +47,36 @@ test("mês histórico usa somente nome completo único do responsável", () => {
   state.members.push({ id: "other-ana", name: "Ana Silva" });
   assert.equal(vm.runInContext("myMonthlyTasks().length", context), 0);
 });
+
+test("análise comparativa aparece somente para Tulio administrador", () => {
+  const tasks = [{ id: "other", account: "BANCOS", group_name: "FINANCEIRO", company_name: "Empresa A", company_id: "a", responsible_id: "bia" }];
+  const { context, state } = setup(tasks);
+  assert.doesNotMatch(vm.runInContext("renderMyPanel()", context), /Tempo por tipo de tarefa e empresa/);
+  state.member = { id: "tulio", name: "Tulio", email: "tulio.dubiella@gmail.com", is_admin: false };
+  assert.doesNotMatch(vm.runInContext("renderMyPanel()", context), /Tempo por tipo de tarefa e empresa/);
+  state.member.is_admin = true;
+  const html = vm.runInContext("renderMyPanel()", context);
+  assert.match(html, /Tempo por tipo de tarefa e empresa/);
+  assert.match(html, /Empresa A/);
+  state.member.email = "outro@exemplo.com";
+  assert.doesNotMatch(vm.runInContext("renderMyPanel()", context), /Tempo por tipo de tarefa e empresa/);
+});
+
+test("tempo por grupo e empresa distingue total de média finalizada e filtra o grupo", () => {
+  const { context, state } = setup([
+    { id: "a-done", account: "BANCOS", group_name: "FINANCEIRO", company_name: "Empresa A", company_id: "a", owner_name: "Ana", responsible_id: "ana" },
+    { id: "a-running", account: "CAIXAS", group_name: "FINANCEIRO", company_name: "Empresa A", company_id: "a", owner_name: "Ana", responsible_id: "ana" },
+    { id: "b-done", account: "BANCOS", group_name: "FINANCEIRO", company_name: "Empresa B", company_id: "b", owner_name: "Bia", responsible_id: "bia" },
+    { id: "fiscal", account: "IMPOSTOS", group_name: "FISCAL", company_name: "Empresa C", company_id: "c", owner_name: "Bia", responsible_id: "bia" },
+  ]);
+  state.member = { id: "tulio", name: "Tulio", email: "tulio.dubiella@gmail.com", is_admin: true };
+  context.taskState = (id) => ({ status: { "a-done": "Finalizado", "a-running": "Em andamento", "b-done": "Finalizado" }[id] || "Não iniciado",
+    total_seconds: { "a-done": 3600, "a-running": 600, "b-done": 1800 }[id] || 0 });
+  state.analysisGroupFilter = "FINANCEIRO";
+  const html = vm.runInContext("renderTeamTimeAnalysis()", context);
+  assert.match(html, /Empresa A<\/td><td>1\/2<\/td><td><strong>4200s<\/strong>/);
+  assert.match(html, /4200s<\/strong>.*?3600s<\/td>/s);
+  assert.match(html, /Empresa B<\/td><td>1\/1<\/td><td><strong>1800s<\/strong>/);
+  assert.doesNotMatch(html, /IMPOSTOS|Empresa C/);
+  assert.match(html, /Conciliações mais demoradas por empresa/);
+});

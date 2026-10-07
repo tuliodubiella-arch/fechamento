@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.06.1";
+const APP_VERSION = "2026.10.07.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -16,7 +16,7 @@ const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
-  companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], online: navigator.onLine,
+  companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], analysisGroupFilter: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
   invitePendingIds: [], inviteStatus: "idle",
@@ -339,7 +339,45 @@ function renderMyPanel() {
     <section class="panel"><div class="panel-head"><div><h2>Meu tempo por grupo sintético</h2><p>Horas registradas por tipo de tarefa</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
     <section class="panel"><div class="panel-head"><div><h2>Minhas rotinas</h2><p>Atividades atribuídas a você na competência selecionada</p></div><button class="btn compact" data-action="my-execution" ${items.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
     ${ordered.length ? `<div class="table-wrap my-tasks-wrap"><table class="my-tasks-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${ordered.map((item) => `<tr><td><strong>${esc(item.account)}</strong><small>${esc(executionGroup(item))}</small></td><td>${esc(item.company_name)}</td><td>${badge(statusOf(item))}</td><td>${item.historic ? "—" : duration(secondsFor(item))}</td></tr>`).join("")}</tbody></table></div>`
-      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>`;
+      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>
+    ${canViewTeamTimeAnalysis() ? renderTeamTimeAnalysis() : ""}`;
+}
+function canViewTeamTimeAnalysis() {
+  return Boolean(state.member?.is_admin && state.member.email?.trim().toLocaleLowerCase("pt-BR") === "tulio.dubiella@gmail.com");
+}
+function renderTeamTimeAnalysis() {
+  if (isHistorical()) return `<section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa e empresa</h2><p>Análise comparativa da equipe · acesso exclusivo do Tulio administrador</p></div></div><div class="empty">Os tempos de execução não estão disponíveis para competências históricas.</div></section>`;
+  const tasks = monthlyTasks();
+  const groups = [...new Set(tasks.map(executionGroup))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const selectedGroup = groups.includes(state.analysisGroupFilter) ? state.analysisGroupFilter : "";
+  const visible = tasks.filter((task) => !selectedGroup || executionGroup(task) === selectedGroup);
+  const byGroupCompany = new Map();
+  const measured = [];
+  for (const task of visible) {
+    const group = executionGroup(task);
+    const company = task.company_name || "Empresa não informada";
+    const key = JSON.stringify([group, task.company_id || company]);
+    if (!byGroupCompany.has(key)) byGroupCompany.set(key, { group, company, total: 0, completed: 0, seconds: 0, completedSeconds: 0 });
+    const row = byGroupCompany.get(key);
+    const status = statusOf(task);
+    const seconds = currentSeconds(taskState(task.id));
+    row.total += 1;
+    row.seconds += seconds;
+    if (status === "Finalizado" || status === "Concluída") { row.completed += 1; row.completedSeconds += seconds; }
+    if (seconds > 0) measured.push({ ...task, group, status, seconds });
+  }
+  const rows = [...byGroupCompany.values()].sort((a, b) => selectedGroup
+    ? b.seconds - a.seconds || a.company.localeCompare(b.company, "pt-BR")
+    : a.group.localeCompare(b.group, "pt-BR") || b.seconds - a.seconds || a.company.localeCompare(b.company, "pt-BR"));
+  const maxima = new Map();
+  for (const row of rows) maxima.set(row.group, Math.max(maxima.get(row.group) || 0, row.seconds));
+  const slowest = measured.sort((a, b) => b.seconds - a.seconds || a.company_name.localeCompare(b.company_name, "pt-BR")).slice(0, 15);
+  return `<section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa e empresa</h2><p>Comparação de todas as rotinas da equipe na competência ${esc(monthName(state.month))} · exclusivo do seu acesso de administrador</p></div>
+    <label class="analysis-filter">Grupo sintético<select class="select" id="analysis-group-filter"><option value="">Todos os grupos</option>${groups.map((group) => `<option value="${esc(group)}" ${selectedGroup === group ? "selected" : ""}>${esc(group)}</option>`).join("")}</select></label></div>
+    <div class="analysis-note">Tempo total inclui rotinas em andamento. A média considera apenas as rotinas finalizadas, para facilitar a comparação entre empresas.</div>
+    ${rows.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Tipo de tarefa</th><th>Empresa</th><th>Finalizadas / total</th><th>Tempo total</th><th>Média por rotina finalizada</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${esc(row.group)}</strong></td><td>${esc(row.company)}</td><td>${row.completed}/${row.total}</td><td><strong>${duration(row.seconds)}</strong><span class="analysis-bar"><span style="width:${Math.round(100 * row.seconds / Math.max(1, maxima.get(row.group)))}%"></span></span></td><td>${row.completed ? duration(row.completedSeconds / row.completed) : "—"}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Não há rotinas nesta competência para o grupo selecionado.</div>'}</section>
+    <section class="panel"><div class="panel-head"><div><h2>Conciliações mais demoradas por empresa</h2><p>As 15 rotinas com mais tempo registrado${selectedGroup ? ` no grupo ${esc(selectedGroup)}` : ""}; inclui atividades em andamento</p></div></div>
+    ${slowest.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Conta / atividade</th><th>Tipo de tarefa</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${slowest.map((task) => `<tr><td><strong>${esc(task.account)}</strong></td><td>${esc(task.group)}</td><td>${esc(task.company_name)}</td><td>${esc(task.owner_name || "—")}</td><td>${badge(task.status)}</td><td><strong>${duration(task.seconds)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Os tempos aparecerão após o primeiro PLAY das rotinas deste grupo.</div>'}</section>`;
 }
 function renderExecution() {
   const monthTasks = monthlyTasks();
@@ -796,7 +834,8 @@ document.addEventListener("change", (event) => {
     state.groupFilters = element.checked ? [...state.groupFilters, group] : state.groupFilters.filter((item) => item !== group);
     applyExecutionFilters(); return;
   }
-  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; receiptEditor = null; render(); if (state.online) void loadData(); return; }
+  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; state.analysisGroupFilter = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
+  if (element.id === "analysis-group-filter") { state.analysisGroupFilter = element.value; render(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
