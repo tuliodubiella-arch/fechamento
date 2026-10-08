@@ -21,6 +21,8 @@ Para a versão `2026.10.01.2`, aplique `supabase/migrations/20261001_receipt_evi
 
 A versão `2026.10.01.3` não exige migração do banco. Ela reconhece filas antigas com inclusão de rotina bloqueada por falta de permissão de UPDATE e pausa o envio automático dessas filas. No **mesmo navegador e perfil** em que os apontamentos foram feitos, o usuário deve revisar a lista, baixar o JSON de segurança, confirmar que o arquivo foi salvo e só então clicar em **Sincronizar após revisão**. O arquivo contém dados das rotinas e deve ficar em local restrito; nunca enviá-lo ao repositório público. O envio para no primeiro erro, preservando as operações restantes. Não limpe os dados do site enquanto houver pendências. Rotinas novas passam a usar INSERT idempotente, sem ampliar permissões da tabela.
 
+Para a versão `2026.10.08.1`, a migração `supabase/migrations/20261008_require_owner_for_play.sql` impede novos PLAYs sem responsável definido para a rotina na competência selecionada, inclusive quando o usuário está com uma versão antiga da página. Foi aplicada ao projeto antes da publicação da interface; não modifica apontamentos anteriores.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
@@ -31,7 +33,8 @@ Na migração inicial, os apontamentos de teste de setembro/2026 foram omitidos 
 
 ## Operação
 
-- **Painel Geral** mostra os indicadores da competência inteira. **Meu Painel** mostra somente as rotinas atribuídas ao usuário conectado, com progresso por empresa, tempo por grupo sintético e lista das próprias atividades. Exclusivamente para o administrador Tulio, o Meu Painel também compara o tempo de toda a equipe por grupo sintético e empresa, exibe a média por rotina finalizada e destaca as conciliações individuais mais demoradas. O botão **Abrir minhas tarefas em Execução** aplica o filtro do responsável. Nos meses históricos, a associação é pelo nome completo exato, apenas quando ele é único entre os usuários cadastrados.
+- **Painel Geral** mostra os indicadores da competência inteira. **Meu Painel** mostra as rotinas atribuídas ao usuário conectado. Para o administrador Tulio, os quatro indicadores iniciais repetem os dados gerais; dois gráficos usam um filtro compartilhado de múltiplas empresas, o quadro de rotinas próprias fica recolhido com aviso de tarefas vinculadas, e o comparativo de tempo por grupo/empresa possui filtro próprio de empresas. O botão **Abrir minhas tarefas em Execução** aplica o filtro do responsável. Nos meses históricos, a associação é pelo nome completo exato, apenas quando ele é único entre os usuários cadastrados.
+- Em **Execução**, PLAY exige um responsável definido para a rotina no mês selecionado. Sem ele, a página mostra um alerta e não cria o apontamento; o servidor aplica a mesma regra. PAUSE e STOP de rotinas já iniciadas continuam disponíveis.
 - A tipografia dos dois painéis foi ampliada nos cartões, gráficos e lista individual, mantendo tamanhos próprios para telas menores. Execução e Metas não foram alteradas por esse ajuste.
 - A conta de cada responsável usa e-mail e senha próprios. A pessoa convidada define a senha pelo link recebido. Se já usa o mesmo Supabase, entra com a senha existente.
 - Em **Cadastros**, o administrador pode reenviar o convite apenas enquanto ele estiver pendente. O reenvio usa a conta existente e cria um novo link; quem já confirmou o e-mail deve usar **Esqueci minha senha** se não conseguir entrar.

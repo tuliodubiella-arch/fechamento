@@ -20,6 +20,21 @@
 .dashboard-workspace .my-tasks-table .badge{font-size:14px;font-weight:700}
 .dashboard-workspace .panel-head .btn{font-size:14px}
 .analysis-filter{display:grid;gap:5px;min-width:min(260px,100%);font-size:13px;font-weight:700;color:#475569}
+.my-company-toolbar,.analysis-panel{overflow:visible;position:relative;z-index:3}
+.dashboard-company-filter{width:min(300px,100%);flex:none}
+.dashboard-company-filter .multi-filter-menu{right:0;left:auto}
+.my-routines-collapsed{width:min(620px,100%)}
+.my-routines-collapsed>summary{cursor:pointer;list-style:none;border-bottom:0}
+.my-routines-collapsed>summary::-webkit-details-marker{display:none}
+.my-routines-collapsed>summary strong{font-size:20px}
+.my-routines-collapsed>summary small{display:block;margin-top:5px;color:#64748b;font-size:14px}
+.my-routines-collapsed[open]>summary{border-bottom:1px solid #e2e8f0}
+.my-routines-chevron{font-size:20px;color:#64748b;transition:transform .2s}
+.my-routines-collapsed[open] .my-routines-chevron{transform:rotate(180deg)}
+.my-task-alert{padding:7px 11px;border-radius:99px;background:#f9b31c;color:#39373a;font-weight:800;font-size:13px}
+.my-routines-body>.panel-head{padding:11px 18px}
+.owner-play-warning{margin:12px 16px;font-weight:700}
+.owner-required{color:#b91c1c!important;font-weight:700}
 .analysis-note{padding:12px 20px;color:#475569;font-size:14px;line-height:1.45;background:#fffaf0;border-bottom:1px solid #fce5a8}
 .analysis-table-wrap{max-height:62vh}
 .analysis-table{min-width:850px}

@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.07.1";
+const APP_VERSION = "2026.10.08.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
@@ -16,7 +16,7 @@ const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
-  companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], analysisGroupFilter: "", online: navigator.onLine,
+  companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
   invitePendingIds: [], inviteStatus: "idle",
@@ -289,22 +289,30 @@ function renderAuth() {
     ${passwordForm ? "" : '<button class="btn" style="margin-top:12px;width:100%" data-action="forgot-password">Esqueci minha senha</button>'}
     <p id="auth-error" style="color:#b91c1c;margin-top:12px">${expiredAuthLink && !passwordForm ? "O link de convite ou recuperação expirou. Entre com sua senha ou peça um novo link ao administrador." : ""}</p></div></div>`;
 }
-function renderPanel() {
+function renderGeneralCards() {
   const items = monthlyTasks();
   const completed = items.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length;
   const running = items.filter((item) => statusOf(item) === "Em andamento").length;
   const seconds = isHistorical() ? 0 : state.states.filter((item) => item.competence === state.month).reduce((sum, item) => sum + currentSeconds(item), 0);
   const received = state.receipts.filter((item) => item.competence === state.month && item.status === "Recebido").length;
+  const closedCompanies = state.companies.filter((company) => company.active).filter((company) => {
+    const rows = items.filter((item) => item.company_id === company.id);
+    return rows.length && rows.every((item) => ["Finalizado", "Concluída"].includes(statusOf(item)));
+  }).length;
+  return `<div class="grid cards"><div class="card"><span>Atividades</span><strong>${items.length}</strong><small>${completed} finalizadas</small></div>
+    <div class="card"><span>Em andamento</span><strong>${running}</strong><small>Rotinas em execução</small></div>
+    <div class="card"><span>Tempo registrado</span><strong class="live-total">${isHistorical() ? "—" : duration(seconds)}</strong><small>Soma das conciliações</small></div>
+    <div class="card"><span>Progresso geral</span><strong>${items.length ? Math.round(100 * completed / items.length) : 0}%</strong><small>${closedCompanies} empresas encerradas · ${received} documentos recebidos</small></div></div>`;
+}
+function renderPanel() {
+  const items = monthlyTasks();
   const slowest = isHistorical() ? [] : items.map((item) => ({ ...item, seconds: currentSeconds(taskState(item.id)) })).filter((item) => item.seconds > 0).sort((a, b) => b.seconds - a.seconds).slice(0, 8);
   const activeCompanies = state.companies.filter((item) => item.active);
   const companyStats = activeCompanies.map((company) => { const rows = items.filter((item) => item.company_id === company.id); return { name: company.name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).filter((item) => item.total);
   const personStats = state.members.filter((item) => item.active).map((person) => { const rows = items.filter((item) => item.responsible_id === person.id); return { name: person.name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).filter((item) => item.total).sort((a, b) => b.seconds - a.seconds || b.done - a.done);
   const groupStats = [...new Set(items.map((item) => item.group_name || "OUTROS"))].map((name) => { const rows = items.filter((item) => (item.group_name || "OUTROS") === name); return { name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).sort((a, b) => b.seconds - a.seconds);
   const statRows = (rows, mode) => rows.length ? rows.map((item) => `<div class="chart-row"><div class="chart-label"><span>${esc(item.name)}</span><strong>${mode === "time" ? duration(item.seconds) : `${item.done}/${item.total}`}</strong></div><div class="chart-track"><div class="chart-fill ${mode === "time" ? "time" : ""}" style="width:${mode === "time" ? Math.max(item.seconds ? 2 : 0, Math.round(100 * item.seconds / Math.max(1, ...rows.map((row) => row.seconds)))) : Math.round(100 * item.done / item.total)}%"></div></div><small>${mode === "time" ? `${item.done} de ${item.total} concluídas` : `${Math.round(100 * item.done / item.total)}% concluído · ${duration(item.seconds)}`}</small></div>`).join("") : '<div class="empty">Ainda não há dados para este indicador.</div>';
-  return `<div class="grid cards"><div class="card"><span>Atividades</span><strong>${items.length}</strong><small>${completed} finalizadas</small></div>
-    <div class="card"><span>Em andamento</span><strong>${running}</strong><small>Rotinas em execução</small></div>
-    <div class="card"><span>Tempo registrado</span><strong class="live-total">${isHistorical() ? "—" : duration(seconds)}</strong><small>Soma das conciliações</small></div>
-    <div class="card"><span>Progresso geral</span><strong>${items.length ? Math.round(100 * completed / items.length) : 0}%</strong><small>${companyStats.filter((item) => item.done === item.total).length} empresas encerradas · ${received} documentos recebidos</small></div></div>
+  return `${renderGeneralCards()}
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Progresso por empresa</h2><p>Itens finalizados e tempo de trabalho</p></div></div><div class="panel-body chart-list">${statRows(companyStats, "progress")}</div></section>
     <section class="panel"><div class="panel-head"><div><h2>Indicadores por pessoa</h2><p>Responsabilidades e horas registradas</p></div></div><div class="panel-body chart-list">${statRows(personStats, "progress")}</div></section></div>
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa</h2><p>Grupos de contas e rotinas</p></div></div><div class="panel-body chart-list">${statRows(groupStats, "time")}</div></section>
@@ -312,6 +320,7 @@ function renderPanel() {
     ${slowest.length ? slowest.map((item) => `<div class="slow-row"><span title="${esc(item.company_name)}">${esc(item.account)}<small>${esc(item.company_name)}</small></span><strong>${duration(item.seconds)}</strong></div>`).join("") : '<div class="empty">Os tempos aparecerão após o primeiro PLAY.</div>'}</div></section></div>`;
 }
 function renderMyPanel() {
+  if (canViewTeamTimeAnalysis()) return renderTulioPanel();
   const items = myMonthlyTasks();
   const done = items.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length;
   const running = items.filter((item) => statusOf(item) === "Em andamento").length;
@@ -339,8 +348,45 @@ function renderMyPanel() {
     <section class="panel"><div class="panel-head"><div><h2>Meu tempo por grupo sintético</h2><p>Horas registradas por tipo de tarefa</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
     <section class="panel"><div class="panel-head"><div><h2>Minhas rotinas</h2><p>Atividades atribuídas a você na competência selecionada</p></div><button class="btn compact" data-action="my-execution" ${items.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
     ${ordered.length ? `<div class="table-wrap my-tasks-wrap"><table class="my-tasks-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${ordered.map((item) => `<tr><td><strong>${esc(item.account)}</strong><small>${esc(executionGroup(item))}</small></td><td>${esc(item.company_name)}</td><td>${badge(statusOf(item))}</td><td>${item.historic ? "—" : duration(secondsFor(item))}</td></tr>`).join("")}</tbody></table></div>`
-      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>
-    ${canViewTeamTimeAnalysis() ? renderTeamTimeAnalysis() : ""}`;
+      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>`;
+}
+function dashboardCompanyKey(task) { return task.company_id || task.company_name; }
+function dashboardCompanyOptions(tasks) {
+  return [...new Map(tasks.map((task) => [dashboardCompanyKey(task), { id: dashboardCompanyKey(task), name: task.company_name }])).values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+function renderDashboardCompanyFilter(id, options, selected, dataName) {
+  const label = selected.length ? selected.length === 1 ? options.find((company) => company.id === selected[0])?.name : `${selected.length} empresas selecionadas` : "Todas as empresas";
+  return `<details id="${id}" class="multi-filter dashboard-company-filter"><summary class="select" aria-label="Filtrar empresas">${esc(label || "Todas as empresas")}</summary><div class="multi-filter-menu" role="group" aria-label="Empresas">${options.map((company) => `<label><input type="checkbox" ${dataName}="${esc(company.id)}" ${selected.includes(company.id) ? "checked" : ""}>${esc(company.name)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-${id}" ${selected.length ? "" : "disabled"}>Mostrar todas as empresas</button></div></details>`;
+}
+function renderTulioPanel() {
+  const all = monthlyTasks();
+  const options = dashboardCompanyOptions(all);
+  const selected = (state.myPanelCompanyFilters || []).filter((id) => options.some((company) => company.id === id));
+  const visible = all.filter((task) => !selected.length || selected.includes(dashboardCompanyKey(task)));
+  const secondsFor = (task) => task.historic ? 0 : currentSeconds(taskState(task.id));
+  const statsFor = (name, rows) => ({ name, total: rows.length, done: rows.filter((task) => ["Finalizado", "Concluída"].includes(statusOf(task))).length,
+    seconds: rows.reduce((sum, task) => sum + secondsFor(task), 0) });
+  const companies = dashboardCompanyOptions(visible).map((company) => statsFor(company.name, visible.filter((task) => dashboardCompanyKey(task) === company.id)))
+    .sort((a, b) => b.total - b.done - (a.total - a.done) || a.name.localeCompare(b.name, "pt-BR"));
+  const groups = [...new Set(visible.map(executionGroup))].map((name) => statsFor(name, visible.filter((task) => executionGroup(task) === name)))
+    .sort((a, b) => b.seconds - a.seconds || a.name.localeCompare(b.name, "pt-BR"));
+  const chartRows = (rows, mode) => rows.length ? rows.map((item) => `<div class="chart-row"><div class="chart-label"><span title="${esc(item.name)}">${esc(item.name)}</span><strong>${mode === "time" ? duration(item.seconds) : `${item.done}/${item.total}`}</strong></div>
+    <div class="chart-track"><div class="chart-fill ${mode === "time" ? "time" : ""}" style="width:${mode === "time" ? Math.max(item.seconds ? 2 : 0, Math.round(100 * item.seconds / Math.max(1, ...rows.map((row) => row.seconds)))) : Math.round(100 * item.done / item.total)}%"></div></div>
+    <small>${mode === "time" ? `${item.done} de ${item.total} finalizadas` : `${Math.round(100 * item.done / item.total)}% concluído${isHistorical() ? "" : ` · ${duration(item.seconds)}`}`}</small></div>`).join("")
+    : '<div class="empty">Ainda não há rotinas para as empresas selecionadas.</div>';
+  const mine = myMonthlyTasks().sort((a, b) => Number(["Finalizado", "Concluída"].includes(statusOf(a))) - Number(["Finalizado", "Concluída"].includes(statusOf(b)))
+    || a.company_name.localeCompare(b.company_name, "pt-BR") || a.account.localeCompare(b.account, "pt-BR"));
+  const pending = mine.filter((task) => !["Finalizado", "Concluída"].includes(statusOf(task))).length;
+  return `<section class="panel"><div class="panel-head"><div><h2>Meu Painel · ${esc(monthName(state.month))}</h2><p>Visão geral do fechamento para ${esc(state.member.name)}; suas rotinas ficam no quadro recolhido abaixo.</p></div></div></section>
+    ${renderGeneralCards()}
+    <section class="panel my-company-toolbar"><div class="panel-head"><div><h2>Filtrar os gráficos por empresa</h2><p>Selecione uma ou mais empresas; os quatro indicadores acima continuam gerais.</p></div>${renderDashboardCompanyFilter("my-panel-company-filter", options, selected, "data-my-company-filter")}</div></section>
+    <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Tarefas por empresa</h2><p>Conclusão das rotinas das empresas selecionadas</p></div></div><div class="panel-body chart-list">${chartRows(companies, "progress")}</div></section>
+    <section class="panel"><div class="panel-head"><div><h2>Tempo por grupo sintético</h2><p>Horas registradas pela equipe nas empresas selecionadas</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
+    <details class="panel my-routines-collapsed"><summary class="panel-head"><span><strong>Minhas rotinas</strong><small>${mine.length ? `${mine.length} tarefa(s) vinculada(s) · ${pending} pendente(s)` : "Nenhuma tarefa vinculada nesta competência"}</small></span>${mine.length ? `<span class="my-task-alert" role="status">${mine.length} vinculada(s)</span>` : ""}<span class="my-routines-chevron" aria-hidden="true">▾</span></summary>
+    <div class="my-routines-body"><div class="panel-head"><p>Atividades atribuídas diretamente a você</p><button class="btn compact" data-action="my-execution" ${mine.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
+    ${mine.length ? `<div class="table-wrap my-tasks-wrap"><table class="my-tasks-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${mine.map((task) => `<tr><td><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small></td><td>${esc(task.company_name)}</td><td>${badge(statusOf(task))}</td><td>${task.historic ? "—" : duration(secondsFor(task))}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Nenhuma rotina atribuída ao seu nome nesta competência.</div>'}</div></details>
+    ${renderTeamTimeAnalysis()}`;
 }
 function canViewTeamTimeAnalysis() {
   return Boolean(state.member?.is_admin && state.member.email?.trim().toLocaleLowerCase("pt-BR") === "tulio.dubiella@gmail.com");
@@ -348,9 +394,9 @@ function canViewTeamTimeAnalysis() {
 function renderTeamTimeAnalysis() {
   if (isHistorical()) return `<section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa e empresa</h2><p>Análise comparativa da equipe · acesso exclusivo do Tulio administrador</p></div></div><div class="empty">Os tempos de execução não estão disponíveis para competências históricas.</div></section>`;
   const tasks = monthlyTasks();
-  const groups = [...new Set(tasks.map(executionGroup))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const selectedGroup = groups.includes(state.analysisGroupFilter) ? state.analysisGroupFilter : "";
-  const visible = tasks.filter((task) => !selectedGroup || executionGroup(task) === selectedGroup);
+  const options = dashboardCompanyOptions(tasks);
+  const selected = (state.analysisCompanyFilters || []).filter((id) => options.some((company) => company.id === id));
+  const visible = tasks.filter((task) => !selected.length || selected.includes(dashboardCompanyKey(task)));
   const byGroupCompany = new Map();
   const measured = [];
   for (const task of visible) {
@@ -366,18 +412,16 @@ function renderTeamTimeAnalysis() {
     if (status === "Finalizado" || status === "Concluída") { row.completed += 1; row.completedSeconds += seconds; }
     if (seconds > 0) measured.push({ ...task, group, status, seconds });
   }
-  const rows = [...byGroupCompany.values()].sort((a, b) => selectedGroup
-    ? b.seconds - a.seconds || a.company.localeCompare(b.company, "pt-BR")
-    : a.group.localeCompare(b.group, "pt-BR") || b.seconds - a.seconds || a.company.localeCompare(b.company, "pt-BR"));
+  const rows = [...byGroupCompany.values()].sort((a, b) => a.group.localeCompare(b.group, "pt-BR") || b.seconds - a.seconds || a.company.localeCompare(b.company, "pt-BR"));
   const maxima = new Map();
   for (const row of rows) maxima.set(row.group, Math.max(maxima.get(row.group) || 0, row.seconds));
   const slowest = measured.sort((a, b) => b.seconds - a.seconds || a.company_name.localeCompare(b.company_name, "pt-BR")).slice(0, 15);
-  return `<section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa e empresa</h2><p>Comparação de todas as rotinas da equipe na competência ${esc(monthName(state.month))} · exclusivo do seu acesso de administrador</p></div>
-    <label class="analysis-filter">Grupo sintético<select class="select" id="analysis-group-filter"><option value="">Todos os grupos</option>${groups.map((group) => `<option value="${esc(group)}" ${selectedGroup === group ? "selected" : ""}>${esc(group)}</option>`).join("")}</select></label></div>
+  return `<section class="panel analysis-panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa e empresa</h2><p>Comparação de todas as rotinas da equipe na competência ${esc(monthName(state.month))} · exclusivo do seu acesso de administrador</p></div>
+    ${renderDashboardCompanyFilter("analysis-company-filter", options, selected, "data-analysis-company-filter")}</div>
     <div class="analysis-note">Tempo total inclui rotinas em andamento. A média considera apenas as rotinas finalizadas, para facilitar a comparação entre empresas.</div>
-    ${rows.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Tipo de tarefa</th><th>Empresa</th><th>Finalizadas / total</th><th>Tempo total</th><th>Média por rotina finalizada</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${esc(row.group)}</strong></td><td>${esc(row.company)}</td><td>${row.completed}/${row.total}</td><td><strong>${duration(row.seconds)}</strong><span class="analysis-bar"><span style="width:${Math.round(100 * row.seconds / Math.max(1, maxima.get(row.group)))}%"></span></span></td><td>${row.completed ? duration(row.completedSeconds / row.completed) : "—"}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Não há rotinas nesta competência para o grupo selecionado.</div>'}</section>
-    <section class="panel"><div class="panel-head"><div><h2>Conciliações mais demoradas por empresa</h2><p>As 15 rotinas com mais tempo registrado${selectedGroup ? ` no grupo ${esc(selectedGroup)}` : ""}; inclui atividades em andamento</p></div></div>
-    ${slowest.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Conta / atividade</th><th>Tipo de tarefa</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${slowest.map((task) => `<tr><td><strong>${esc(task.account)}</strong></td><td>${esc(task.group)}</td><td>${esc(task.company_name)}</td><td>${esc(task.owner_name || "—")}</td><td>${badge(task.status)}</td><td><strong>${duration(task.seconds)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Os tempos aparecerão após o primeiro PLAY das rotinas deste grupo.</div>'}</section>`;
+    ${rows.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Tipo de tarefa</th><th>Empresa</th><th>Finalizadas / total</th><th>Tempo total</th><th>Média por rotina finalizada</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${esc(row.group)}</strong></td><td>${esc(row.company)}</td><td>${row.completed}/${row.total}</td><td><strong>${duration(row.seconds)}</strong><span class="analysis-bar"><span style="width:${Math.round(100 * row.seconds / Math.max(1, maxima.get(row.group)))}%"></span></span></td><td>${row.completed ? duration(row.completedSeconds / row.completed) : "—"}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Não há rotinas nesta competência para as empresas selecionadas.</div>'}</section>
+    <section class="panel"><div class="panel-head"><div><h2>Conciliações mais demoradas por empresa</h2><p>As 15 rotinas com mais tempo registrado nas empresas selecionadas; inclui atividades em andamento</p></div></div>
+    ${slowest.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Conta / atividade</th><th>Tipo de tarefa</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${slowest.map((task) => `<tr><td><strong>${esc(task.account)}</strong></td><td>${esc(task.group)}</td><td>${esc(task.company_name)}</td><td>${esc(task.owner_name || "—")}</td><td>${badge(task.status)}</td><td><strong>${duration(task.seconds)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Os tempos aparecerão após o primeiro PLAY das rotinas das empresas selecionadas.</div>'}</section>`;
 }
 function renderExecution() {
   const monthTasks = monthlyTasks();
@@ -398,9 +442,10 @@ function renderExecution() {
     <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${members.map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
     <details id="group-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por grupo sintético">${esc(groupLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Grupos sintéticos">${groups.map((item) => `<label><input type="checkbox" data-group-filter="${esc(item)}" ${state.groupFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-group-filter" ${state.groupFilters.length ? "" : "disabled"}>Mostrar todos os grupos</button></div></details>
     <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
+    ${state.executionOwnerWarning ? '<div class="notice warn owner-play-warning" role="alert">Esta tarefa não pode ser iniciada sem um responsável definido. Selecione um responsável na coluna correspondente antes de usar PLAY.</div>' : ""}
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
     <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small></td><td data-label="Empresa">${esc(task.company_name)}</td>
-      <td data-label="Responsável">${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>`}</td>
+      <td data-label="Responsável">${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>${state.executionOwnerWarning === task.id ? '<small class="owner-required">Defina o responsável para iniciar.</small>' : ""}`}</td>
       <td data-label="Status">${badge(statusOf(task))}</td><td data-label="Tempo" class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td data-label="Início · Brasília">${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td data-label="Fim · Brasília">${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
       <td data-label="Execução">${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
@@ -622,6 +667,12 @@ function act(taskId, action) {
   if (isHistorical()) return;
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task || !taskInMonth(task)) return;
+  if (action === "play" && !ownerFor(taskId)?.responsible_id) {
+    state.executionOwnerWarning = taskId;
+    render();
+    return toast("Esta tarefa não pode ser iniciada sem um responsável definido.");
+  }
+  state.executionOwnerWarning = "";
   const now = new Date().toISOString();
   const previous = taskState(taskId) || { task_id: taskId, competence: state.month, status: "Não iniciado", total_seconds: 0 };
   if (action === "play" && previous.status === "Em andamento") return;
@@ -834,14 +885,23 @@ document.addEventListener("change", (event) => {
     state.groupFilters = element.checked ? [...state.groupFilters, group] : state.groupFilters.filter((item) => item !== group);
     applyExecutionFilters(); return;
   }
-  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; state.analysisGroupFilter = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
-  if (element.id === "analysis-group-filter") { state.analysisGroupFilter = element.value; render(); return; }
+  if (element.matches("[data-my-company-filter], [data-analysis-company-filter]")) {
+    const key = element.matches("[data-my-company-filter]") ? "myPanelCompanyFilters" : "analysisCompanyFilters";
+    const companyId = element.dataset.myCompanyFilter || element.dataset.analysisCompanyFilter;
+    state[key] = element.checked ? [...state[key], companyId] : state[key].filter((id) => id !== companyId);
+    const filterId = key === "myPanelCompanyFilters" ? "my-panel-company-filter" : "analysis-company-filter";
+    render();
+    const filter = document.getElementById(filterId); if (filter) filter.open = true;
+    return;
+  }
+  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; state.myPanelCompanyFilters = []; state.analysisCompanyFilters = []; state.executionOwnerWarning = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
   if (action === "task-owner") {
     const task = state.tasks.find((item) => item.id === id); if (!task) return;
     const row = { task_id: id, competence: state.month, responsible_id: element.value || null, responsible_legacy_name: null };
+    if (state.executionOwnerWarning === id && row.responsible_id) state.executionOwnerWarning = "";
     changeLocal("owners", row, ["task_id", "competence"]);
     enqueue({ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" });
   } else if (action === "goal-category") saveGoal(id, { category: element.value });
@@ -865,6 +925,10 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "clear-status-filter") { state.statusFilters = []; document.querySelectorAll("[data-status-filter]").forEach((input) => { input.checked = false; }); applyExecutionFilters(); return; }
   if (action === "clear-group-filter") { state.groupFilters = []; document.querySelectorAll("[data-group-filter]").forEach((input) => { input.checked = false; }); applyExecutionFilters(); return; }
+  if (action === "clear-my-panel-company-filter" || action === "clear-analysis-company-filter") {
+    state[action === "clear-my-panel-company-filter" ? "myPanelCompanyFilters" : "analysisCompanyFilters"] = [];
+    render(); return;
+  }
   if (action === "tab") {
     state.tab = button.dataset.tab;
     if (state.tab === "Versões" && !state.member?.is_admin) state.tab = "Painel Geral";
