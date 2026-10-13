@@ -7,15 +7,16 @@ const field = (form, name) => form.elements.namedItem(name);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
-const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.13.1";
+const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
+const APP_VERSION = "2026.10.13.2";
+const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
-  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
+  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
@@ -81,7 +82,7 @@ const recoveryErrorKey = () => `fc_recovery_error_${state.session?.user?.id || "
 const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "collaborationReady", "commentsMonth"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "closingErrors", "errorFeatureReady", "commentsMonth"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -127,7 +128,9 @@ async function insertCollaborationRecord(item) {
   if (result.error?.code !== "23505") return result;
   const existing = await client.from(item.table).select("*").eq("id", item.row.id).maybeSingle();
   if (existing.error || !existing.data) return result;
-  const fields = item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"] : ["author_id", "body"];
+  const fields = item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"]
+    : item.table === "fc_closing_errors" ? ["company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "system_improvement", "correction_date", "created_by"]
+      : ["author_id", "body"];
   return fields.every((key) => existing.data[key] === item.row[key]) ? { error: null } : result;
 }
 async function flush() {
@@ -139,7 +142,7 @@ async function flush() {
       let result;
       if (item.kind === "rpc") result = await client.rpc(item.name, item.args);
       else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
-      else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions"].includes(item.table)) result = await insertCollaborationRecord(item);
+      else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions", "fc_closing_errors"].includes(item.table)) result = await insertCollaborationRecord(item);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
       else if (item.kind === "update") {
         let query = client.from(item.table).update(item.values);
@@ -218,13 +221,14 @@ async function loadData() {
       const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: requestedMonth });
       if (assignmentError) throw assignmentError;
     }
-    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions] = await Promise.all([
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions, closingErrors] = await Promise.all([
       allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
       allRows("fc_receipt_deliveries").then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_task_comments", { competence: requestedMonth }).then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_improvement_suggestions").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_closing_errors").then((data) => ({ data })).catch((error) => ({ error })),
     ]);
     if (requestedMonth !== state.month) return;
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
@@ -241,6 +245,16 @@ async function loadData() {
     if (suggestions.data) {
       const pending = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_improvement_suggestions").map((item) => item.row);
       state.suggestions = [...suggestions.data, ...pending.filter((row) => !suggestions.data.some((saved) => saved.id === row.id))];
+    }
+    state.errorFeatureReady = !closingErrors.error;
+    state.errorFeatureError = closingErrors.error?.message || "";
+    if (closingErrors.data) {
+      const pending = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_closing_errors").map((item) => item.row);
+      state.closingErrors = [...closingErrors.data, ...pending.filter((row) => !closingErrors.data.some((saved) => saved.id === row.id))];
+      for (const item of state.queue.filter((entry) => entry.kind === "update" && entry.table === "fc_closing_errors")) {
+        const row = state.closingErrors.find((entry) => entry.id === item.where.id);
+        if (row) Object.assign(row, item.values);
+      }
     }
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
@@ -612,6 +626,30 @@ function renderSuggestions() {
         ${item.status === "Pendente" && state.member?.is_admin && !pendingIds.has(item.id) ? `<div class="suggestion-decision"><label class="field"><span>Motivo da decisão</span><textarea class="input" data-suggestion-reason="${esc(item.id)}" maxlength="1000" rows="2" placeholder="Explique por que aceita ou rejeita esta sugestão">${esc(state.suggestionReasonDrafts[item.id] || "")}</textarea></label><div class="actions"><button class="btn compact primary" data-action="decide-suggestion" data-id="${esc(item.id)}" data-decision="Aceita">Aceitar</button><button class="btn compact danger" data-action="decide-suggestion" data-id="${esc(item.id)}" data-decision="Rejeitada">Rejeitar</button></div></div>` : ""}
         ${item.status !== "Pendente" ? `<div class="suggestion-outcome"><strong>Motivo:</strong> ${esc(item.decision_reason)}<small>Decisão de ${esc(memberName(item.decided_by, "Usuário removido"))} · ${brasilia(item.decided_at)}</small></div>` : ""}</article>`).join("") : '<div class="empty">Nenhuma sugestão cadastrada até o momento.</div>'}</div></div></section>`;
 }
+function renderClosingErrors() {
+  const all = state.closingErrors || [];
+  const search = state.errorSearch.trim().toLocaleLowerCase("pt-BR");
+  const rows = all.filter((item) => (!state.errorStatusFilter || item.status === state.errorStatusFilter)
+    && (!search || [item.company_name, item.assigned_user, item.requested_by, item.error_label, item.description].some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(search))))
+    .sort((a, b) => (a.status === "Corrigido") - (b.status === "Corrigido") || String(b.requested_at || "").localeCompare(String(a.requested_at || "")) || String(a.company_name).localeCompare(String(b.company_name), "pt-BR"));
+  const companyNames = [...new Set([...all.map((item) => item.company_name), ...state.companies.map((item) => item.name)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const people = [...new Set([...all.map((item) => item.assigned_user), ...state.members.map((item) => item.name)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const pending = new Set(state.queue.filter((item) => item.table === "fc_closing_errors").map((item) => item.row?.id || item.where?.id));
+  return `<section class="panel closing-errors"><div class="panel-head"><div><h2>Controle de erros</h2><p>Erros identificados nos fechamentos anteriores e acompanhamento das correções pela equipe. Os registros novos são feitos aqui, sem planilha externa.</p></div></div>
+    <div class="panel-body">${state.errorFeatureError ? `<div class="notice warn">Não foi possível atualizar o controle de erros: ${esc(state.errorFeatureError)}</div>` : ""}
+      <div class="error-summary"><div><strong>${all.filter((item) => item.status === "Aberto").length}</strong><span>Aberto(s)</span></div><div><strong>${all.filter((item) => !["Aberto", "Corrigido"].includes(item.status)).length}</strong><span>Em andamento</span></div><div><strong>${all.filter((item) => item.status === "Corrigido").length}</strong><span>Corrigido(s)</span></div></div>
+      <details class="error-editor" id="error-editor"><summary>Registrar novo erro ou editar item existente</summary>
+        <form id="closing-error-form" class="form-grid"><input type="hidden" name="id"><label class="field"><span>Empresa</span><input class="input" name="company_name" list="error-companies" maxlength="200" required></label><label class="field"><span>Usuário / responsável</span><input class="input" name="assigned_user" list="error-people" maxlength="200"></label>
+        <label class="field"><span>Quem solicitou</span><input class="input" name="requested_by" maxlength="200"></label><label class="field"><span>Data da solicitação</span><input class="input" name="requested_at" type="date"></label>
+        <label class="field"><span>Erro / identificação</span><input class="input" name="error_label" maxlength="500"></label><label class="field"><span>Status</span><select class="select" name="status">${errorStatuses.map((status) => `<option value="${esc(status)}">${esc(status)}</option>`).join("")}</select></label>
+        <label class="field wide"><span>Histórico / descrição do erro</span><textarea class="input" name="description" rows="4" maxlength="10000" required></textarea></label>
+        <label class="field"><span>Corrigido por melhoria em sistema?</span><select class="select" name="system_improvement"><option value="">Não informado</option><option value="true">Sim</option><option value="false">Não</option></select></label><label class="field"><span>Data da correção</span><input class="input" name="correction_date" type="date"></label>
+        <div class="actions wide"><button class="btn primary" type="submit" ${state.errorFeatureReady ? "" : "disabled"}>Salvar erro</button><button class="btn" type="button" data-action="clear-error-form">Limpar formulário</button></div></form></details>
+      <datalist id="error-companies">${companyNames.map((name) => `<option value="${esc(name)}">`).join("")}</datalist><datalist id="error-people">${people.map((name) => `<option value="${esc(name)}">`).join("")}</datalist>
+      <div class="error-filters"><label class="field"><span>Buscar</span><input class="input" id="error-search" value="${esc(state.errorSearch)}" placeholder="Empresa, erro, pessoa ou histórico"></label><label class="field"><span>Status</span><select class="select" id="error-status-filter"><option value="">Todos</option>${errorStatuses.map((status) => `<option value="${esc(status)}" ${state.errorStatusFilter === status ? "selected" : ""}>${esc(status)}</option>`).join("")}</select></label></div>
+      <div class="table-wrap"><table class="error-table"><thead><tr><th>Empresa</th><th>Erro / histórico</th><th>Responsável / solicitação</th><th>Status</th><th>Melhoria em sistema</th><th>Correção</th><th></th></tr></thead><tbody>${rows.map((item) => `<tr><td data-label="Empresa"><strong>${esc(item.company_name)}</strong></td><td data-label="Erro / histórico"><strong>${esc(item.error_label || "Sem código")}</strong><small>${esc(item.description)}</small></td><td data-label="Responsável / solicitação">${esc(item.assigned_user || "—")}<small>Solicitado por ${esc(item.requested_by || "—")} · ${dateBR(item.requested_at)}</small></td><td data-label="Status"><span class="badge ${item.status === "Corrigido" ? "done" : item.status === "Aberto" ? "not-started" : "paused"}">${esc(item.status)}</span>${pending.has(item.id) ? '<small>Aguardando sincronização</small>' : ""}</td><td data-label="Melhoria em sistema">${item.system_improvement === null || item.system_improvement === undefined ? "Não informado" : item.system_improvement ? "Sim" : "Não"}</td><td data-label="Correção">${dateBR(item.correction_date)}</td><td><button class="btn compact" data-action="edit-closing-error" data-id="${esc(item.id)}" ${pending.has(item.id) ? "disabled" : ""}>Editar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">Nenhum erro encontrado para este filtro.</td></tr>'}</tbody></table></div>
+      <p class="muted">${rows.length} item(ns) exibido(s) de ${all.length}. Sem data de correção, o item permanece em aberto ou em andamento; “Corrigido” exige a data.</p></div></section>`;
+}
 function renderRegistry() {
   const companyOptions = state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
@@ -687,13 +725,13 @@ function render() {
     $("#app").innerHTML = `<div class="auth-screen"><div class="auth-box"><h1>Acesso pendente</h1><p>${esc(state.error || "Peça ao administrador para liberar seu e-mail.")}</p><button class="btn" data-action="logout">Sair</button></div></div>`;
     return;
   }
-  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Sugestões de melhoria" ? renderSuggestions() : state.tab === "Versões" ? renderVersions() : renderRegistry();
+  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Controle de erros" ? renderClosingErrors() : state.tab === "Sugestões de melhoria" ? renderSuggestions() : state.tab === "Versões" ? renderVersions() : renderRegistry();
   const recovering = state.recoveryHold && state.queue.length > 0;
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
     <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
-    <main class="shell ${state.tab === "Execução" || state.tab === "Metas" ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
+    <main class="shell ${["Execução", "Metas", "Controle de erros"].includes(state.tab) ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div>${!recovering && state.tab === "Execução" ? renderCommentsPanel() : ""}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyExecutionFilters();
@@ -863,7 +901,7 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form"].includes(form.id)) return;
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form"].includes(form.id)) return;
   event.preventDefault();
   try {
     if (form.id === "auth-form") {
@@ -879,6 +917,36 @@ document.addEventListener("submit", async (event) => {
         state.session = data.session; loadCache(); await loadData();
       }
     } else if (form.id === "invite-form") await inviteMember(form);
+    else if (form.id === "closing-error-form") {
+      if (!state.errorFeatureReady) throw new Error("O controle de erros ainda não está disponível neste aparelho.");
+      const id = field(form, "id").value;
+      const existing = id ? state.closingErrors.find((item) => item.id === id) : null;
+      if (id && !existing) throw new Error("Este erro não está mais disponível para edição.");
+      const status = field(form, "status").value;
+      if (!errorStatuses.includes(status)) throw new Error("Selecione um status válido.");
+      const correctionDate = field(form, "correction_date").value || null;
+      const improvementValue = field(form, "system_improvement").value;
+      if (status === "Corrigido" && !correctionDate) throw new Error("Informe a data da correção para concluir o erro.");
+      if (status !== "Corrigido" && correctionDate) throw new Error("A data da correção só pode ser informada quando o status for Corrigido.");
+      if (status === "Corrigido" && !improvementValue && !existing?.source_row) throw new Error("Informe se a correção veio de melhoria em sistema.");
+      const values = {
+        company_name: field(form, "company_name").value.trim(), assigned_user: field(form, "assigned_user").value.trim() || null,
+        requested_by: field(form, "requested_by").value.trim() || null, requested_at: field(form, "requested_at").value || null,
+        error_label: field(form, "error_label").value.trim() || null, description: field(form, "description").value.trim(),
+        status, system_improvement: status === "Corrigido" ? improvementValue === "" ? null : improvementValue === "true" : null,
+        correction_date: correctionDate, updated_by: state.member.id,
+      };
+      if (values.company_name.length < 2 || !values.description) throw new Error("Informe empresa e descrição do erro.");
+      if (existing) {
+        Object.assign(existing, values);
+        enqueue({ kind: "update", table: "fc_closing_errors", where: { id }, values });
+      } else {
+        const row = { id: uid(), ...values, created_by: state.member.id };
+        state.closingErrors.push(row);
+        enqueue({ kind: "insert", table: "fc_closing_errors", row });
+      }
+      toast(existing ? "Erro atualizado." : "Erro registrado.");
+    }
     else if (form.id === "comment-form") {
       const taskId = form.dataset.taskId, task = monthlyTasks().find((item) => item.id === taskId && !item.historic);
       const body = field(form, "body").value.trim();
@@ -938,12 +1006,14 @@ document.addEventListener("submit", async (event) => {
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "search") { state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#search"); input.focus(); input.setSelectionRange(pos, pos); }
+  if (event.target.id === "error-search") { state.errorSearch = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#error-search"); input.focus(); input.setSelectionRange(pos, pos); }
   if (event.target.form?.id === "comment-form") state.commentDrafts[event.target.form.dataset.taskId] = event.target.value;
   if (event.target.form?.id === "suggestion-form") state.suggestionDraft = event.target.value;
   if (event.target.matches("[data-suggestion-reason]")) state.suggestionReasonDrafts[event.target.dataset.suggestionReason] = event.target.value;
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
+  if (element.id === "error-status-filter") { state.errorStatusFilter = element.value; render(); return; }
   if (element.id === "queue-backup-confirm") { state.recoveryBackupConfirmed = element.checked && state.recoveryBackupRequested; render(); return; }
   if (element.matches("[data-status-filter]")) {
     const status = element.dataset.statusFilter;
@@ -987,6 +1057,18 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
+  if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) field(form, "id").value = ""; return; }
+  if (action === "edit-closing-error") {
+    const item = state.closingErrors.find((row) => row.id === id);
+    const form = $("#closing-error-form");
+    if (!item || !form) return;
+    for (const name of ["id", "company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "correction_date"])
+      field(form, name).value = item[name] || "";
+    field(form, "system_improvement").value = item.system_improvement === null || item.system_improvement === undefined ? "" : String(item.system_improvement);
+    $("#error-editor").open = true;
+    $("#error-editor").scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
   if (action === "download-queue") { downloadQueueBackup(); return; }
   if (action === "skip-duplicate-pause") { await skipDuplicatePause(); return; }
   if (action === "sync-queue") {

@@ -160,3 +160,17 @@
 .suggestion-outcome small{display:block;margin-top:8px}
 @media(max-width:600px){.comment-overlay{padding:0}.comment-dialog{border-radius:0}.comment-list,.comment-form{padding:13px}}
 
+/* Controle de erros do fechamento. */
+.closing-errors .panel-head p{max-width:880px;line-height:1.45}
+.error-summary{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.error-summary>div{min-width:145px;display:grid;gap:3px;padding:12px 17px;border:1px solid #dce4ed;border-radius:12px;background:#f8fafc}
+.error-summary strong{font-size:25px;color:#273b4e}.error-summary span{color:#526579;font-size:13px}
+.error-editor{margin:0 0 20px;border:1px solid #dce4ed;border-radius:12px;padding:14px 18px;background:#fff}
+.error-editor summary{cursor:pointer;font-weight:800;color:#273b4e}.error-editor .form-grid{margin-top:18px}
+.error-filters{display:grid;grid-template-columns:minmax(240px,2fr) minmax(180px,1fr);gap:12px;margin:16px 0}
+.error-table{min-width:1050px;width:100%}.error-table td{vertical-align:top;line-height:1.45}
+.error-table td:nth-child(2){min-width:300px;max-width:520px;overflow-wrap:anywhere}
+.error-table td small{display:block;color:#64748b;margin-top:5px;white-space:pre-wrap}
+.error-table .badge{font-weight:800}.error-table .badge.not-started{background:#b42318;color:#fff}.error-table .badge.done{background:#16803c;color:#fff}
+@media(max-width:650px){.error-filters{grid-template-columns:1fr}.error-summary>div{flex:1;min-width:90px}}
+
