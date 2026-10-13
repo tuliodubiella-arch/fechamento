@@ -23,6 +23,8 @@ A versão `2026.10.01.3` não exige migração do banco. Ela reconhece filas ant
 
 Para a versão `2026.10.08.1`, a migração `supabase/migrations/20261008_require_owner_for_play.sql` impede novos PLAYs sem responsável definido para a rotina na competência selecionada, inclusive quando o usuário está com uma versão antiga da página. Foi aplicada ao projeto antes da publicação da interface; não modifica apontamentos anteriores.
 
+Para a versão `2026.10.13.1`, aplique `supabase/migrations/20261013_comments_suggestions.sql` antes de publicar a interface. Ela cria os comentários por atividade e competência e as sugestões de melhoria com acesso restrito aos responsáveis cadastrados. Qualquer responsável pode comentar e sugerir; apenas administradores decidem, com motivo obrigatório. Os textos enviados não podem ser editados ou apagados pelo portal, preservando o histórico.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
@@ -35,6 +37,8 @@ Na migração inicial, os apontamentos de teste de setembro/2026 foram omitidos 
 
 - **Painel Geral** mostra os indicadores da competência inteira. **Meu Painel** mostra as rotinas atribuídas ao usuário conectado. Para o administrador Tulio, os quatro indicadores iniciais repetem os dados gerais; dois gráficos usam um filtro compartilhado de múltiplas empresas, o quadro de rotinas próprias fica recolhido com aviso de tarefas vinculadas, e o comparativo de tempo por grupo/empresa possui filtro próprio de empresas. O botão **Abrir minhas tarefas em Execução** aplica o filtro do responsável. Nos meses históricos, a associação é pelo nome completo exato, apenas quando ele é único entre os usuários cadastrados.
 - Em **Execução**, PLAY exige um responsável definido para a rotina no mês selecionado. Sem ele, a página mostra um alerta e não cria o apontamento; o servidor aplica a mesma regra. PAUSE e STOP de rotinas já iniciadas continuam disponíveis.
+- Em **Execução**, o botão **Comentários** de cada atividade abre os apontamentos daquele mês, com autor e horário de Brasília. Comentários escritos offline permanecem na fila local até a sincronização.
+- Em **Sugestões de melhoria**, todos os responsáveis podem registrar e acompanhar ideias. O administrador aceita ou rejeita cada uma com motivo obrigatório; a decisão fica visível para todos. Sugestões escritas offline aguardam sincronização no mesmo navegador, mas a decisão administrativa exige conexão.
 - A tipografia dos dois painéis foi ampliada nos cartões, gráficos e lista individual, mantendo tamanhos próprios para telas menores. Execução e Metas não foram alteradas por esse ajuste.
 - A conta de cada responsável usa e-mail e senha próprios. A pessoa convidada define a senha pelo link recebido. Se já usa o mesmo Supabase, entra com a senha existente.
 - Em **Cadastros**, o administrador pode reenviar o convite apenas enquanto ele estiver pendente. O reenvio usa a conta existente e cria um novo link; quem já confirmou o e-mail deve usar **Esqueci minha senha** se não conseguir entrar.

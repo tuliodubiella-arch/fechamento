@@ -7,15 +7,15 @@ const field = (form, name) => form.elements.namedItem(name);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
-const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Cadastros"];
-const APP_VERSION = "2026.10.08.1";
+const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Sugestões de melhoria", "Cadastros"];
+const APP_VERSION = "2026.10.13.1";
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
-  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
+  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
@@ -81,7 +81,7 @@ const recoveryErrorKey = () => `fc_recovery_error_${state.session?.user?.id || "
 const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "collaborationReady", "commentsMonth"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -122,6 +122,14 @@ async function insertNewTask(row) {
   const fields = ["id", "company_id", "account", "group_name", "responsible_id", "responsible_legacy_name", "created_competence", "active"];
   return fields.every((key) => (existing.data[key] ?? null) === (row[key] ?? null)) ? { error: null } : result;
 }
+async function insertCollaborationRecord(item) {
+  const result = await client.from(item.table).insert(item.row);
+  if (result.error?.code !== "23505") return result;
+  const existing = await client.from(item.table).select("*").eq("id", item.row.id).maybeSingle();
+  if (existing.error || !existing.data) return result;
+  const fields = item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"] : ["author_id", "body"];
+  return fields.every((key) => existing.data[key] === item.row[key]) ? { error: null } : result;
+}
 async function flush() {
   if (!state.online || !state.member || flushing || (state.recoveryHold && !state.recoveryApproved)) return;
   flushing = true;
@@ -131,6 +139,7 @@ async function flush() {
       let result;
       if (item.kind === "rpc") result = await client.rpc(item.name, item.args);
       else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
+      else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions"].includes(item.table)) result = await insertCollaborationRecord(item);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
       else if (item.kind === "update") {
         let query = client.from(item.table).update(item.values);
@@ -190,10 +199,12 @@ async function skipDuplicatePause() {
   render();
   toast("PAUSE repetido retirado e auditado. Os demais registros estão preservados; baixe uma nova cópia antes de sincronizar.");
 }
-async function allRows(table) {
+async function allRows(table, filters = {}) {
   const rows = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await client.from(table).select("*").range(from, from + 999);
+    let query = client.from(table).select("*").range(from, from + 999);
+    for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
+    const { data, error } = await query;
     if (error) throw error;
     rows.push(...data);
     if (data.length < 1000) return rows;
@@ -201,21 +212,36 @@ async function allRows(table) {
 }
 async function loadData() {
   if (!state.session || !state.online) { render(); return; }
+  const requestedMonth = state.month;
   try {
     if (!isHistorical()) {
-      const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: state.month });
+      const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: requestedMonth });
       if (assignmentError) throw assignmentError;
     }
-    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries] = await Promise.all([
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions] = await Promise.all([
       allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
       allRows("fc_receipt_deliveries").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_task_comments", { competence: requestedMonth }).then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_improvement_suggestions").then((data) => ({ data })).catch((error) => ({ error })),
     ]);
+    if (requestedMonth !== state.month) return;
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
     state.receiptFeatureReady = !deliveries.error;
     state.receiptDeliveries = deliveries.data || [];
+    state.collaborationReady = !comments.error && !suggestions.error;
+    state.collaborationError = comments.error?.message || suggestions.error?.message || "";
+    if (comments.data) {
+      const pending = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_task_comments" && item.row.competence === requestedMonth).map((item) => item.row);
+      state.taskComments = [...comments.data, ...pending.filter((row) => !comments.data.some((saved) => saved.id === row.id))];
+      state.commentsMonth = requestedMonth;
+    }
+    if (suggestions.data) {
+      const pending = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_improvement_suggestions").map((item) => item.row);
+      state.suggestions = [...suggestions.data, ...pending.filter((row) => !suggestions.data.some((saved) => saved.id === row.id))];
+    }
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
     if (state.member?.is_admin) {
@@ -444,13 +470,25 @@ function renderExecution() {
     <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
     ${state.executionOwnerWarning ? '<div class="notice warn owner-play-warning" role="alert">Esta tarefa não pode ser iniciada sem um responsável definido. Selecione um responsável na coluna correspondente antes de usar PLAY.</div>' : ""}
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
-    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small></td><td data-label="Empresa">${esc(task.company_name)}</td>
+    <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); const commentCount = state.commentsMonth === state.month ? (state.taskComments || []).filter((item) => item.task_id === task.id).length : 0; return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small>${task.historic ? "" : `<button class="btn compact comment-open" data-action="open-comments" data-id="${esc(task.id)}" title="Abrir comentários e apontamentos desta atividade">Comentários (${commentCount})</button>`}</td><td data-label="Empresa">${esc(task.company_name)}</td>
       <td data-label="Responsável">${task.historic ? esc(task.owner_name) : `<select class="select" data-action="task-owner" data-id="${esc(task.id)}"><option value="">A definir</option>${memberOptions}</select>${state.executionOwnerWarning === task.id ? '<small class="owner-required">Defina o responsável para iniciar.</small>' : ""}`}</td>
       <td data-label="Status">${badge(statusOf(task))}</td><td data-label="Tempo" class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td data-label="Início · Brasília">${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td data-label="Fim · Brasília">${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
       <td data-label="Execução">${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
       <td data-label="Manutenção">${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
+}
+function renderCommentsPanel() {
+  const task = monthlyTasks().find((item) => item.id === state.commentTaskId && !item.historic);
+  if (!task) return "";
+  const comments = state.commentsMonth === state.month
+    ? (state.taskComments || []).filter((item) => item.task_id === task.id && item.competence === state.month).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))) : [];
+  const pendingIds = new Set(state.queue.filter((item) => item.table === "fc_task_comments").map((item) => item.row?.id));
+  return `<div class="comment-overlay" role="presentation"><section class="comment-dialog" role="dialog" aria-modal="true" aria-label="Comentários da atividade">
+    <div class="panel-head"><div><h2>Comentários e apontamentos</h2><p>${esc(task.account)} · ${esc(task.company_name)} · ${esc(monthName(state.month))}</p></div><button class="btn compact" data-action="close-comments" aria-label="Fechar comentários">Fechar</button></div>
+    <div class="comment-list">${comments.length ? comments.map((item) => `<article class="comment-entry"><p>${esc(item.body).replace(/\n/g, "<br>")}</p><small>${esc(memberName(item.author_id, "Usuário removido"))} · ${pendingIds.has(item.id) ? "Aguardando sincronização" : brasilia(item.created_at)}</small></article>`).join("") : '<div class="empty">Ainda não há comentários nesta atividade.</div>'}</div>
+    <form id="comment-form" class="comment-form" data-task-id="${esc(task.id)}"><label class="field"><span>Novo comentário / apontamento</span><textarea class="input" name="body" maxlength="2000" rows="4" placeholder="Descreva uma observação sobre esta atividade…" required>${esc(state.commentDrafts[task.id] || "")}</textarea></label>
+      <button class="btn primary" type="submit" ${state.collaborationReady ? "" : "disabled"}>Adicionar comentário</button>${state.collaborationError ? `<small class="muted">Comentários indisponíveis: ${esc(state.collaborationError)}</small>` : ""}</form></section></div>`;
 }
 function applyExecutionFilters() {
   const statusFilter = $("#status-filter"), groupFilter = $("#group-filter");
@@ -564,6 +602,16 @@ function renderHistory() {
     <p class="muted">Os fechamentos históricos preservam as datas já cadastradas, inclusive as incompletas, exibidas como no original. Os tempos em horas começam com os apontamentos feitos no painel.</p></div></section>
     <section class="panel"><div class="panel-head"><h2>Meses registrados</h2></div><div class="panel-body history-grid">${months.map((month) => { const count = state.history.filter((item) => item.competence === month).length || state.states.filter((item) => item.competence === month).length; return `<button class="history-month" data-action="choose-month" data-month="${month}">${esc(monthName(month))}<strong>${count}</strong><small>registros</small></button>`; }).join("") || '<div class="empty">Histórico ainda não migrado.</div>'}</div></section></div>`;
 }
+function renderSuggestions() {
+  const suggestions = [...(state.suggestions || [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const pendingIds = new Set(state.queue.filter((item) => item.table === "fc_improvement_suggestions").map((item) => item.row?.id));
+  return `<section class="panel suggestions-panel"><div class="panel-head"><div><h2>Sugestões de melhoria</h2><p>Compartilhe ideias para facilitar o uso do painel. Todos os responsáveis podem acompanhar as sugestões e decisões.</p></div></div>
+    <div class="panel-body">${state.collaborationError ? `<div class="notice warn">Não foi possível carregar as sugestões: ${esc(state.collaborationError)}</div>` : ""}
+      <form id="suggestion-form" class="suggestion-form"><label class="field"><span>Sua sugestão</span><textarea class="input" name="body" maxlength="4000" minlength="10" rows="4" placeholder="O que pode melhorar no painel?" required>${esc(state.suggestionDraft)}</textarea></label><button class="btn primary" type="submit" ${state.collaborationReady ? "" : "disabled"}>Enviar sugestão</button></form>
+      <h3 class="section-title">Sugestões registradas (${suggestions.length})</h3><div class="suggestion-list">${suggestions.length ? suggestions.map((item) => `<article class="suggestion-entry"><div class="suggestion-heading"><span class="badge ${item.status === "Aceita" ? "done" : item.status === "Rejeitada" ? "not-started" : "paused"}">${esc(item.status)}</span><small>${esc(memberName(item.author_id, "Usuário removido"))} · ${pendingIds.has(item.id) ? "Aguardando sincronização" : brasilia(item.created_at)}</small></div><p>${esc(item.body).replace(/\n/g, "<br>")}</p>
+        ${item.status === "Pendente" && state.member?.is_admin && !pendingIds.has(item.id) ? `<div class="suggestion-decision"><label class="field"><span>Motivo da decisão</span><textarea class="input" data-suggestion-reason="${esc(item.id)}" maxlength="1000" rows="2" placeholder="Explique por que aceita ou rejeita esta sugestão">${esc(state.suggestionReasonDrafts[item.id] || "")}</textarea></label><div class="actions"><button class="btn compact primary" data-action="decide-suggestion" data-id="${esc(item.id)}" data-decision="Aceita">Aceitar</button><button class="btn compact danger" data-action="decide-suggestion" data-id="${esc(item.id)}" data-decision="Rejeitada">Rejeitar</button></div></div>` : ""}
+        ${item.status !== "Pendente" ? `<div class="suggestion-outcome"><strong>Motivo:</strong> ${esc(item.decision_reason)}<small>Decisão de ${esc(memberName(item.decided_by, "Usuário removido"))} · ${brasilia(item.decided_at)}</small></div>` : ""}</article>`).join("") : '<div class="empty">Nenhuma sugestão cadastrada até o momento.</div>'}</div></div></section>`;
+}
 function renderRegistry() {
   const companyOptions = state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
@@ -600,6 +648,8 @@ function pendingDescription(item) {
   const company = state.companies.find((row) => row.id === companyId) || state.queue.find((row) => row.table === "fc_companies" && row.row?.id === companyId)?.row;
   const action = item.kind === "rpc" && item.name === "fc_apply_activity"
     ? ({ play: "PLAY", pause: "PAUSE", stop: "STOP" })[item.args?.p_action] || "Apontamento"
+    : item.table === "fc_task_comments" ? "Comentário de atividade"
+      : item.table === "fc_improvement_suggestions" ? "Sugestão de melhoria"
     : item.table === "fc_tasks" && (item.kind === "insert" || isLegacyTaskWrite(item)) ? "Inclusão de rotina"
       : item.kind === "update" ? "Alteração de cadastro" : "Cadastro / ajuste";
   return { action, target: [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro", month: item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : "—" };
@@ -637,14 +687,14 @@ function render() {
     $("#app").innerHTML = `<div class="auth-screen"><div class="auth-box"><h1>Acesso pendente</h1><p>${esc(state.error || "Peça ao administrador para liberar seu e-mail.")}</p><button class="btn" data-action="logout">Sair</button></div></div>`;
     return;
   }
-  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Versões" ? renderVersions() : renderRegistry();
+  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Sugestões de melhoria" ? renderSuggestions() : state.tab === "Versões" ? renderVersions() : renderRegistry();
   const recovering = state.recoveryHold && state.queue.length > 0;
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
     <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
     <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
     <main class="shell ${state.tab === "Execução" || state.tab === "Metas" ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
-    ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div></main>`;
+    ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div>${!recovering && state.tab === "Execução" ? renderCommentsPanel() : ""}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyExecutionFilters();
   if (state.tab === "Metas") updateReceiptPreview();
@@ -813,7 +863,7 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form"].includes(form.id)) return;
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form"].includes(form.id)) return;
   event.preventDefault();
   try {
     if (form.id === "auth-form") {
@@ -829,6 +879,24 @@ document.addEventListener("submit", async (event) => {
         state.session = data.session; loadCache(); await loadData();
       }
     } else if (form.id === "invite-form") await inviteMember(form);
+    else if (form.id === "comment-form") {
+      const taskId = form.dataset.taskId, task = monthlyTasks().find((item) => item.id === taskId && !item.historic);
+      const body = field(form, "body").value.trim();
+      if (!state.collaborationReady || !task) throw new Error("Comentários indisponíveis nesta atividade.");
+      if (body.length < 1 || body.length > 2000) throw new Error("Informe um comentário de até 2.000 caracteres.");
+      const row = { id: uid(), task_id: taskId, competence: state.month, author_id: state.member.id, body };
+      state.taskComments.push({ ...row, created_at: new Date().toISOString() });
+      state.commentsMonth = state.month; delete state.commentDrafts[taskId];
+      enqueue({ kind: "insert", table: "fc_task_comments", row });
+    } else if (form.id === "suggestion-form") {
+      const body = field(form, "body").value.trim();
+      if (!state.collaborationReady) throw new Error("As sugestões ainda não estão disponíveis.");
+      if (body.length < 10 || body.length > 4000) throw new Error("Descreva a sugestão em 10 a 4.000 caracteres.");
+      const row = { id: uid(), author_id: state.member.id, body };
+      state.suggestions.push({ ...row, status: "Pendente", created_at: new Date().toISOString() });
+      state.suggestionDraft = "";
+      enqueue({ kind: "insert", table: "fc_improvement_suggestions", row });
+    }
     else if (form.id === "company-form") {
       if (isHistorical()) throw new Error("Selecione um mês atual ou futuro para cadastrar empresas.");
       const name = field(form, "name").value.trim(), category = field(form, "category").value;
@@ -870,6 +938,9 @@ document.addEventListener("submit", async (event) => {
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "search") { state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#search"); input.focus(); input.setSelectionRange(pos, pos); }
+  if (event.target.form?.id === "comment-form") state.commentDrafts[event.target.form.dataset.taskId] = event.target.value;
+  if (event.target.form?.id === "suggestion-form") state.suggestionDraft = event.target.value;
+  if (event.target.matches("[data-suggestion-reason]")) state.suggestionReasonDrafts[event.target.dataset.suggestionReason] = event.target.value;
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
@@ -894,7 +965,7 @@ document.addEventListener("change", (event) => {
     const filter = document.getElementById(filterId); if (filter) filter.open = true;
     return;
   }
-  if (element.id === "month") { state.month = element.value; state.query = ""; state.groupFilters = []; state.myPanelCompanyFilters = []; state.analysisCompanyFilters = []; state.executionOwnerWarning = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
+  if (element.id === "month") { state.month = element.value; state.commentTaskId = ""; state.query = ""; state.groupFilters = []; state.myPanelCompanyFilters = []; state.analysisCompanyFilters = []; state.executionOwnerWarning = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
@@ -931,9 +1002,27 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "tab") {
     state.tab = button.dataset.tab;
+    state.commentTaskId = "";
     if (state.tab === "Versões" && !state.member?.is_admin) state.tab = "Painel Geral";
     render();
     if (state.tab === "Cadastros") void loadInviteStatuses();
+  }
+  else if (action === "open-comments") { state.commentTaskId = id; render(); }
+  else if (action === "close-comments") { state.commentTaskId = ""; render(); }
+  else if (action === "decide-suggestion") {
+    if (!state.member?.is_admin || !state.online) return toast("Somente um administrador conectado pode decidir sugestões.");
+    const suggestion = state.suggestions.find((item) => item.id === id);
+    const decision = button.dataset.decision, reason = document.querySelector(`[data-suggestion-reason="${CSS.escape(id)}"]`)?.value.trim();
+    if (!suggestion || suggestion.status !== "Pendente" || !["Aceita", "Rejeitada"].includes(decision)) return;
+    if (!reason || reason.length < 8 || reason.length > 1000) return toast("Informe um motivo de 8 a 1.000 caracteres para a decisão.");
+    button.disabled = true;
+    const { data, error } = await client.from("fc_improvement_suggestions")
+      .update({ status: decision, decision_reason: reason, decided_by: state.member.id, decided_at: new Date().toISOString() })
+      .eq("id", id).eq("status", "Pendente").select();
+    if (error) { button.disabled = false; return toast(`Decisão não registrada: ${error.message}`); }
+    if (!data?.length) { await loadData(); return toast("Esta sugestão já foi decidida por outro administrador."); }
+    delete state.suggestionReasonDrafts[id];
+    toast(`Sugestão ${decision.toLowerCase()} com motivo registrado.`); await loadData();
   }
   else if (action === "activity") act(id, button.dataset.kind);
   else if (action === "my-execution") { state.tab = "Execução"; state.ownerFilter = state.member.id; state.companyFilter = ""; state.query = ""; state.statusFilters = []; state.groupFilters = []; render(); }
@@ -1027,6 +1116,7 @@ document.addEventListener("click", async (event) => {
 });
 window.addEventListener("online", () => { state.online = true; void flush(); render(); });
 window.addEventListener("offline", () => { state.online = false; render(); });
+window.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.commentTaskId) { state.commentTaskId = ""; render(); } });
 setInterval(() => {
   state.tick = Date.now();
   if (state.tab !== "Execução") return;
