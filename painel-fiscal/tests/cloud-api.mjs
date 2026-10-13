@@ -19,5 +19,6 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  const payload={version:1,action:'comment',text:'Print',attachments:[{name:'print.png',type:'image/png',data:'aW1hZ2U='}]};
  await api('items/item-id','PUT',payload);const apply=calls.find(c=>c.url.endsWith('fs_apply_item'));assert.deepEqual(JSON.parse(apply.body).p_payload.attachments,['attachment-id']);assert.ok(calls.some(c=>c.headers.Authorization==='Bearer test-session'&&c.url.includes('/object/fiscal-prints/member/')));
  conflict=true;await assert.rejects(()=>api('items/item-id','PUT',payload),/Conflito/);assert.ok(calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/object/fiscal-prints')));assert.ok(calls.some(c=>c.url.endsWith('fs_discard_attachment')));
+ await api('items/item-id','PUT',{action:'delete-activity',id:'activity-id',version:5});const deletion=calls.find(c=>c.url.endsWith('fs_delete_activity'));assert.deepEqual(JSON.parse(deletion.body),{p_id:'item-id',p_activity_id:'activity-id',p_version:5});
  await api('logout','POST',{});await assert.rejects(()=>api('state'),e=>e.status===401);
 });

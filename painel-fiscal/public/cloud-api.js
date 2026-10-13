@@ -19,7 +19,7 @@ if(window.FISCAL_CLOUD){
  if(route==='state')return signed(await rpc('fs_get_state'));
  if(route==='users')return request('/functions/v1/fiscal-create-member','POST',body);
  if(route==='items')return rpc('fs_create_item',{p_payload:body});
- if(route.startsWith('items/')){const id=route.slice(6),images=await uploads(id,body.attachments||[]);try{return await rpc('fs_apply_item',{p_id:id,p_payload:{...body,attachments:images.map(a=>a.id)}});}catch(e){await cleanup(images);throw e;}}
+ if(route.startsWith('items/')){const id=route.slice(6);if(body.action==='delete-activity')return rpc('fs_delete_activity',{p_id:id,p_activity_id:body.id,p_version:body.version});const images=await uploads(id,body.attachments||[]);try{return await rpc('fs_apply_item',{p_id:id,p_payload:{...body,attachments:images.map(a=>a.id)}});}catch(e){await cleanup(images);throw e;}}
  throw Error('Operação desconhecida.');
  }};
 }

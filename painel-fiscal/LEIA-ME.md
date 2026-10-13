@@ -19,6 +19,7 @@ Versão local para validar o fluxo com a equipe antes de publicar. Identidade ba
 - Visão geral: indicadores, próximas entregas e movimentações recentes.
 - Rotinas e projetos: título, objetivo, responsável, prioridade, frequência e período de execução.
 - Atividades: cadastro e conclusão, com cálculo automático do progresso.
+- Administradores podem excluir uma atividade na aba **Atividades**, após confirmar. A exclusão recalcula o progresso e registra o nome da atividade, a autoria e o horário no histórico. Rotinas, projetos, comentários e execuções são preservados.
 - Ações delegadas: o dono ou administrador atribui ações com prazo a outras pessoas. O vínculo temporário fica ativo enquanto a pessoa tiver ações pendentes naquela entrega. O responsável pela ação, dono ou administrador pode concluir com descrição do resultado, gerando registro de execução. Reabrir a ação reativa o vínculo e preserva o histórico anterior.
 - Os quadros mostram participantes temporários e o filtro **Minhas ações pendentes**. A busca também encontra participantes ativos. A delegação não altera o dono nem o status geral da entrega.
 - Cronograma: visualização por período e edição das datas.

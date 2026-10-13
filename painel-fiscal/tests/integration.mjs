@@ -27,6 +27,14 @@ test('login, equipe, colaboração, conflitos e persistência',async()=>{
  item=(await request('state','GET',null,member.cookie)).body.items[0];assert.equal(item.activities[0].done,true);
  for(const action of ['comment','execution']){assert.equal((await request('items/'+id,'PUT',{version:item.version,action,text:'Conferência realizada'},member.cookie)).status,200);item=(await request('state','GET',null,member.cookie)).body.items[0];}
  assert.equal(item.comments[0].author,'Equipe Teste');assert.equal(item.executions.length,1);
+ const activityId=item.activities[0].id;
+ assert.equal((await request('items/'+id,'PUT',{version:item.version,action:'delete-activity',id:activityId},member.cookie)).status,403);
+ assert.equal((await request('items/'+id,'PUT',{version:item.version-1,action:'delete-activity',id:activityId},admin.cookie)).status,409);
+ assert.equal((await request('items/'+id,'PUT',{version:item.version,action:'delete-activity',id:'inexistente'},admin.cookie)).status,404);
+ assert.equal((await request('items/'+id,'PUT',{version:item.version,action:'delete-activity',id:activityId},admin.cookie)).status,200);
+ const deleted=(await request('state','GET',null,admin.cookie)).body;
+ assert.equal(deleted.items[0].activities.length,0);assert.equal(deleted.items[0].executions.length,1);assert.equal(deleted.items[0].comments.length,1);
+ assert.ok(deleted.events.some(e=>e.user==='Admin Teste'&&e.action.includes('Excluiu a atividade “Conferir documentos” (concluída)')));
  const disk=JSON.parse(await readFile(path.join(data,'database.json'),'utf8'));assert.ok(!disk.users[0].password.includes('Teste-local'));assert.equal(disk.items.length,1);
  child.kill();await new Promise(r=>child.once('exit',r));child=launch();await ready();
  const login=await request('login','POST',{email:'admin@example.test',password:'Teste-local-123'});assert.equal((await request('state','GET',null,login.cookie)).body.items[0].executions.length,1);

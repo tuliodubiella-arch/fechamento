@@ -83,6 +83,11 @@ const server=http.createServer(async(req,res)=>{
  item.executions.push({id:randomUUID(),text:`Ação delegada: ${d.title}\nResultado: ${d.result}`,author:user.name,at:d.completedAt,attachments});event(user,`Concluiu a ação delegada “${d.title}”`,item);
  }else{if(!d.done)return send(409,{error:'Esta ação já está pendente.'});d.done=false;d.completedAt=null;d.completedBy=null;d.result='';d.attachments=[];event(user,`Reabriu a ação delegada “${d.title}”`,item);}
  }
+ else if(action==='delete-activity'){
+ if(user.role!=='admin')return send(403,{error:'Somente o administrador pode excluir atividades.'});
+ const index=item.activities.findIndex(a=>a.id===b.id);if(index<0)return send(404,{error:'Atividade não encontrada.'});
+ const [activity]=item.activities.splice(index,1);event(user,`Excluiu a atividade “${activity.title}”${activity.done?' (concluída)':''}`,item);
+ }
  else if(action==='toggle'){const a=item.activities.find(a=>a.id===b.id);if(!a)return send(404,{error:'Atividade não encontrada.'});a.done=!a.done;event(user,a.done?'Concluiu atividade':'Reabriu atividade',item);}
  else if(action==='comment'&&text(b.text)){const attachments=storeAttachments(b.attachments);item.comments.push({id:randomUUID(),text:text(b.text),author:user.name,at:new Date().toISOString(),attachments});event(user,'Comentou',item);}
  else if(action==='execution'&&text(b.text)){const attachments=storeAttachments(b.attachments);item.executions.push({id:randomUUID(),text:text(b.text),author:user.name,at:new Date().toISOString(),attachments});event(user,'Registrou execução',item);}
