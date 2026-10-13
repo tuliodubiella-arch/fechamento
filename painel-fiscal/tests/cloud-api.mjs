@@ -20,5 +20,6 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  await api('items/item-id','PUT',payload);const apply=calls.find(c=>c.url.endsWith('fs_apply_item'));assert.deepEqual(JSON.parse(apply.body).p_payload.attachments,['attachment-id']);assert.ok(calls.some(c=>c.headers.Authorization==='Bearer test-session'&&c.url.includes('/object/fiscal-prints/member/')));
  conflict=true;await assert.rejects(()=>api('items/item-id','PUT',payload),/Conflito/);assert.ok(calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/object/fiscal-prints')));assert.ok(calls.some(c=>c.url.endsWith('fs_discard_attachment')));
  await api('items/item-id','PUT',{action:'delete-activity',id:'activity-id',version:5});const deletion=calls.find(c=>c.url.endsWith('fs_delete_activity'));assert.deepEqual(JSON.parse(deletion.body),{p_id:'item-id',p_activity_id:'activity-id',p_version:5});
+ await api('items/item-id','PUT',{action:'delete-item',version:6});const removed=calls.find(c=>c.url.endsWith('fs_delete_item'));assert.deepEqual(JSON.parse(removed.body),{p_id:'item-id',p_version:6});
  await api('logout','POST',{});await assert.rejects(()=>api('state'),e=>e.status===401);
 });

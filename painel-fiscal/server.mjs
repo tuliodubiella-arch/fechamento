@@ -59,15 +59,18 @@ const server=http.createServer(async(req,res)=>{
  if(!attachment)return send(404,{error:'Print não encontrado.'});
  const bytes=readFileSync(path.join(dir,'attachments',attachment.file));res.writeHead(200,{'Content-Type':attachment.type,'Content-Length':bytes.length,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store','Content-Disposition':'inline'});return res.end(bytes);
  }
- if(route==='/api/state'&&req.method==='GET')return send(200,{user:cleanUser(user),users:db.users.map(cleanUser),items:db.items,events:db.events});
+ if(route==='/api/state'&&req.method==='GET')return send(200,{user:cleanUser(user),users:db.users.map(cleanUser),items:db.items.filter(i=>!i.deletedAt),events:db.events});
  if(route==='/api/users'&&req.method==='POST'){
  if(user.role!=='admin')return send(403,{error:'Somente o administrador pode cadastrar pessoas.'});const b=await body(req);if(!text(b.name,80)||!emailValid(b.email)||typeof b.password!=='string'||b.password.length<10||b.password.length>128)return send(400,{error:'Informe nome, e-mail válido e senha de 10 a 128 caracteres.'});if(db.users.some(u=>u.email===b.email.trim().toLowerCase()))return send(409,{error:'Este e-mail já está cadastrado.'});db.users.push({id:randomUUID(),name:text(b.name,80),email:b.email.trim().toLowerCase(),password:hash(b.password),role:'member'});event(user,'Cadastrou uma pessoa');save();return send(201,{ok:true});}
  if(route==='/api/items'&&req.method==='POST'){
  const b=await body(req);if(!text(b.title,150)||!['routine','project'].includes(b.type)||!dateValid(b.start)||!dateValid(b.end)||b.end<b.start||!db.users.some(u=>u.id===b.owner))return send(400,{error:'Revise o título, responsável e período de execução.'});const item={id:randomUUID(),type:b.type,title:text(b.title,150),description:text(b.description),owner:b.owner,start:b.start,end:b.end,frequency:['Diária','Semanal','Mensal','Única'].includes(b.frequency)?b.frequency:'Única',priority:['Baixa','Média','Alta'].includes(b.priority)?b.priority:'Média',status:'Planejada',activities:[],comments:[],executions:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1};db.items.push(item);event(user,'Criou',item);save();return send(201,{id:item.id});}
  const match=route.match(/^\/api\/items\/([^/]+)$/);if(match&&req.method==='PUT'){
- const b=await body(req);const item=db.items.find(i=>i.id===match[1]);if(!item)return send(404,{error:'Registro não encontrado.'});if(b.version!==item.version)return send(409,{error:'Outra pessoa atualizou este registro. Os dados foram recarregados; confira antes de repetir.'});
+ const b=await body(req);const item=db.items.find(i=>i.id===match[1]&&!i.deletedAt);if(!item)return send(404,{error:'Registro não encontrado ou já excluído.'});if(b.version!==item.version)return send(409,{error:'Outra pessoa atualizou este registro. Os dados foram recarregados; confira antes de repetir.'});
  const action=b.action;
- if(action==='status'&&['Planejada','Em andamento','Concluída','Bloqueada'].includes(b.status)){item.status=b.status;event(user,`Alterou o status para ${b.status}`,item);}
+ if(action==='delete-item'){
+ if(user.role!=='admin')return send(403,{error:'Somente o administrador pode excluir rotinas e projetos.'});item.deletedAt=new Date().toISOString();item.deletedBy=user.id;event(user,item.type==='project'?'Excluiu o projeto':'Excluiu a rotina',item);
+ }
+ else if(action==='status'&&['Planejada','Em andamento','Concluída','Bloqueada'].includes(b.status)){item.status=b.status;event(user,`Alterou o status para ${b.status}`,item);}
  else if(action==='activity'&&text(b.title,200)){item.activities.push({id:randomUUID(),title:text(b.title,200),done:false});event(user,'Adicionou atividade',item);}
  else if(action==='delegate'){
  if(user.id!==item.owner&&user.role!=='admin')return send(403,{error:'Somente o dono da entrega ou administrador pode delegar ações.'});

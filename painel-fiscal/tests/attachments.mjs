@@ -27,5 +27,9 @@ test('prints: autenticação, validação, registros e persistência',async()=>{
  await update('reopen-delegation',{id:item.delegations[0].id});item=await read();assert.equal(item.executions[1].attachments.length,1);
  child.kill();await new Promise(r=>child.once('exit',r));child=launch();await ready();cookie=(await req('login','POST',{email:'apoio@example.test',password:'Senha-teste-123'})).cookie;
  const restored=await fetch(base+'attachments/'+imageId,{headers:{Cookie:cookie}});assert.equal(restored.status,200);assert.deepEqual(Buffer.from(await restored.arrayBuffer()),png);
+ const adminCookie=(await req('login','POST',{email:'dono@example.test',password:'Senha-teste-123'})).cookie;
+ const active=(await req('state','GET',null,adminCookie)).body.items[0];assert.equal((await req('items/'+id,'PUT',{version:active.version,action:'delete-item'},adminCookie)).status,200);
+ assert.equal((await req('state','GET',null,adminCookie)).body.items.length,0);
+ const archivedPrint=await fetch(base+'attachments/'+imageId,{headers:{Cookie:cookie}});assert.equal(archivedPrint.status,200);assert.deepEqual(Buffer.from(await archivedPrint.arrayBuffer()),png);
  }finally{child.kill();}
 });

@@ -38,6 +38,18 @@ test('login, equipe, colaboração, conflitos e persistência',async()=>{
  const disk=JSON.parse(await readFile(path.join(data,'database.json'),'utf8'));assert.ok(!disk.users[0].password.includes('Teste-local'));assert.equal(disk.items.length,1);
  child.kill();await new Promise(r=>child.once('exit',r));child=launch();await ready();
  const login=await request('login','POST',{email:'admin@example.test',password:'Teste-local-123'});assert.equal((await request('state','GET',null,login.cookie)).body.items[0].executions.length,1);
+ for(const type of ['routine','project']){
+ const record=(await request('items','POST',{type,title:'Excluir '+type,owner:st.user.id,start:'2026-10-13',end:'2026-10-20'},login.cookie)).body.id;
+ const memberLogin=await request('login','POST',{email:'equipe@example.test',password:'Equipe-local-123'});
+ assert.equal((await request('items/'+record,'PUT',{action:'delete-item',version:1},memberLogin.cookie)).status,403);
+ assert.equal((await request('items/'+record,'PUT',{action:'delete-item',version:0},login.cookie)).status,409);
+ await request('items/'+record,'PUT',{action:'comment',version:1,text:'Preservar comentário'},login.cookie);
+ assert.equal((await request('items/'+record,'PUT',{action:'delete-item',version:2},login.cookie)).status,200);
+ const current=(await request('state','GET',null,login.cookie)).body;
+ assert.ok(!current.items.some(i=>i.id===record));assert.ok(current.events.some(e=>e.item==='Excluir '+type&&e.action.startsWith('Excluiu')));
+ assert.equal((await request('items/'+record,'PUT',{action:'activity',version:3,title:'Alteração tardia'},login.cookie)).status,404);
+ const preserved=JSON.parse(await readFile(path.join(data,'database.json'),'utf8')).items.find(i=>i.id===record);assert.ok(preserved.deletedAt);assert.equal(preserved.comments[0].text,'Preservar comentário');
+ }
  assert.equal((await request('logout','POST',{},login.cookie)).status,200);assert.equal((await request('state','GET',null,login.cookie)).status,401);
  }finally{child.kill();}
 });
