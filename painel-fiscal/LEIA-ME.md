@@ -17,6 +17,7 @@ Versão local para validar o fluxo com a equipe antes de publicar. Identidade ba
 ## O que está disponível
 
 - Visão geral: indicadores, próximas entregas e movimentações recentes.
+- Grupos de rotinas: crie um grupo, defina suas etapas e cadastre registros com empresa, órgão/junta, protocolo, responsável e prazo. Cada etapa corresponde a um status operacional. O grupo aparece como um único cartão no painel de rotinas; seus registros ficam no quadro por etapas ou na lista interna. Use a aba **Grupo / registro** para vincular uma rotina já cadastrada a um grupo. Administradores podem excluir grupos com seus registros, preservando o histórico e os prints.
 - Rotinas e projetos: título, objetivo, responsável, prioridade, frequência e período de execução.
 - Atividades: cadastro e conclusão, com cálculo automático do progresso.
 - Administradores podem excluir uma atividade na aba **Atividades**, após confirmar. A exclusão recalcula o progresso e registra o nome da atividade, a autoria e o horário no histórico. Rotinas, projetos, comentários e execuções são preservados.

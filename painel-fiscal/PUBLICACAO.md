@@ -14,6 +14,7 @@ O cadastro é processado pela função fiscal-create-member, que valida a sessã
 
 - index.html na pasta publicada é uma cópia de hosted/index.html; aponta para os arquivos em public/.
 - supabase/fiscal_schema.sql registra a criação da área fiscal. Já foi aplicado; não executar novamente como se fosse uma instalação nova.
+- supabase/fiscal_groups.sql cria fs_groups e as operações de grupos, registros e etapas. Já foi aplicado. Os registros continuam em fs_items e usam os mesmos comentários, execuções, delegações e prints; rotinas existentes permanecem sem grupo até serem vinculadas pela equipe.
 - supabase/fiscal_activity_actions.sql e supabase/fiscal_item_actions.sql adicionam as exclusões administrativas. Já foram aplicados. Rotinas e projetos excluídos ficam preservados com deleted_at e deleted_by, mas saem dos quadros e não aceitam novas edições. Os prints permanecem no armazenamento privado.
 - supabase/functions/fiscal-create-member/index.ts contém a função implantada. A verificação automática de JWT legado fica desligada porque a própria função verifica a sessão em auth.getUser() e as permissões no banco, como o projeto já utiliza chaves públicas novas.
 - O fluxo existente do repositório publica o GitHub Pages quando main é atualizada.
