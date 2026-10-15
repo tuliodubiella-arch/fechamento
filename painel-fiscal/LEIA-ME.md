@@ -50,3 +50,11 @@ Esta versão é adequada à validação local de uma equipe pequena em um único
 ## Verificação
 
 Execute `npm test`. O teste usa armazenamento temporário separado e verifica autenticação, cadastro de equipe, permissões, atividades, comentários, execuções, conflitos de edição e persistência após reinício.
+# Meu Painel
+
+Cada login tem um quadro pessoal com atividades, período de execução, status, prioridade, checklist e anotações privadas. Outros usuários do aplicativo, inclusive administradores, não podem consultar nem alterar esses registros. Os dados privados ficam separados dos quadros, cronograma e histórico da equipe.
+
+Para compartilhar uma atividade, salve e abra **Compartilhar uma cópia com a equipe**. A cópia entra nas Rotinas fiscais com título, descrição, datas, status, prioridade e checklist. As anotações privadas nunca são copiadas. Depois do envio, as duas atividades evoluem de forma independente; excluir a atividade pessoal mantém a cópia da equipe. Para excluir a cópia compartilhada, aplicam-se as permissões de administrador já existentes nas Rotinas fiscais.
+
+Na versão Supabase, aplicar `supabase/fiscal_personal.sql` uma vez antes de atualizar os arquivos públicos. O teste transacional `supabase/fiscal_personal_test.sql` verifica isolamento, permissões, compartilhamento e conflitos sem manter dados de teste.
+

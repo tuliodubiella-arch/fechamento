@@ -25,5 +25,6 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  await api('groups/group-id','PUT',{action:'update-group',version:1});assert.ok(calls.some(c=>c.url.endsWith('fs_update_group')&&JSON.parse(c.body).p_id==='group-id'));
  await api('items','POST',{groupId:'group-id',title:'Registro'});assert.ok(calls.some(c=>c.url.endsWith('fs_create_group_record')));
  await api('items/item-id','PUT',{action:'record-stage',stageId:'stage-id',version:7});const moved=calls.find(c=>c.url.endsWith('fs_update_record'));assert.deepEqual(JSON.parse(moved.body),{p_id:'item-id',p_payload:{action:'record-stage',stageId:'stage-id',version:7}});
+ await api('personal','POST',{title:'Privada',action:'save'});await api('personal/private-id','PUT',{action:'share',version:1});const personal=calls.filter(c=>c.url.endsWith('fs_save_personal'));assert.deepEqual(JSON.parse(personal[0].body),{p_id:null,p_payload:{title:'Privada',action:'save'}});assert.equal(JSON.parse(personal[1].body).p_id,'private-id');assert.ok(calls.some(c=>c.url.endsWith('fs_get_personal')));
  await api('logout','POST',{});await assert.rejects(()=>api('state'),e=>e.status===401);
 });

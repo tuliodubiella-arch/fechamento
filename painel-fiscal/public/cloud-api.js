@@ -16,7 +16,9 @@ if(window.FISCAL_CLOUD){
  if(route==='setup')return {required:false};
  if(route==='login'){await auth('token?grant_type=password',{email:body.email,password:body.password});return {};}
  if(route==='logout'){try{await request('/auth/v1/logout','POST',{});}finally{save(null);}return {};}
- if(route==='state')return signed(await rpc('fs_get_state'));
+ if(route==='state'){const [team,personal]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal')]);team.personalItems=personal;return signed(team);}
+ if(route==='personal')return method==='GET'?rpc('fs_get_personal'):rpc('fs_save_personal',{p_id:null,p_payload:body});
+ if(route.startsWith('personal/'))return rpc('fs_save_personal',{p_id:route.slice(9),p_payload:body});
  if(route==='users')return request('/functions/v1/fiscal-create-member','POST',body);
  if(route==='groups')return rpc('fs_create_group',{p_payload:body});
  if(route.startsWith('groups/'))return rpc('fs_update_group',{p_id:route.slice(7),p_payload:body});

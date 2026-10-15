@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {handlePersonal} from './personal-server.mjs';
 import {handleGroups,setGroupRecord} from './groups-server.mjs';
 import {readFileSync,writeFileSync,mkdirSync,existsSync,renameSync} from 'node:fs';
 import {randomBytes,scryptSync,timingSafeEqual,randomUUID,createHash} from 'node:crypto';
@@ -12,6 +13,7 @@ const dir=process.env.DATA_DIR||path.join(root,'data'); mkdirSync(dir,{recursive
 const file=path.join(dir,'database.json');
 let db=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):{users:[],items:[],events:[]};
 db.groups??=[];
+db.personalItems??=[];
 const save=()=>{writeFileSync(file+'.tmp',JSON.stringify(db,null,2));renameSync(file+'.tmp',file);};
 const sessions=new Map(), attempts=new Map();
 const cleanUser=u=>({id:u.id,name:u.name,email:u.email,role:u.role});
@@ -44,7 +46,7 @@ const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');const route=url.pathname;
  const send=(code,data)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
  try{
- if(!route.startsWith('/api/')){const assets={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css','/groups.js':'groups.js','/groups.css':'groups.css','/delegations.css':'delegations.css','/logo.png':'logo.png','/attachments.js':'attachments.js','/attachments.css':'attachments.css'};if(!assets[route]){res.writeHead(404);return res.end('Não encontrado');}const ext=path.extname(assets[route]);res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'})[ext],'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'"});return res.end(readFileSync(path.join(root,'public',assets[route])));}
+ if(!route.startsWith('/api/')){const assets={'/':'index.html','/app.js':'app.js','/personal.js':'personal.js','/personal.css':'personal.css','/styles.css':'styles.css','/groups.js':'groups.js','/groups.css':'groups.css','/delegations.css':'delegations.css','/logo.png':'logo.png','/attachments.js':'attachments.js','/attachments.css':'attachments.css'};if(!assets[route]){res.writeHead(404);return res.end('Não encontrado');}const ext=path.extname(assets[route]);res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png'})[ext],'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'"});return res.end(readFileSync(path.join(root,'public',assets[route])));}
  if(!['GET','POST','PUT'].includes(req.method))return send(405,{error:'Método inválido.'});
  if(req.method!=='GET'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`&&req.headers.origin!==`https://${req.headers.host}`)return send(403,{error:'Origem não permitida.'});
  if(route==='/api/setup'&&req.method==='GET')return send(200,{required:db.users.length===0,protected:production});
@@ -61,7 +63,8 @@ const server=http.createServer(async(req,res)=>{
  if(!attachment)return send(404,{error:'Print não encontrado.'});
  const bytes=readFileSync(path.join(dir,'attachments',attachment.file));res.writeHead(200,{'Content-Type':attachment.type,'Content-Length':bytes.length,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store','Content-Disposition':'inline'});return res.end(bytes);
  }
- if(route==='/api/state'&&req.method==='GET')return send(200,{user:cleanUser(user),users:db.users.map(cleanUser),items:db.items.filter(i=>!i.deletedAt),groups:db.groups.filter(g=>!g.deletedAt),events:db.events});
+ if(route==='/api/state'&&req.method==='GET')return send(200,{user:cleanUser(user),users:db.users.map(cleanUser),personalItems:db.personalItems.filter(i=>i.owner===user.id&&!i.deletedAt),items:db.items.filter(i=>!i.deletedAt),groups:db.groups.filter(g=>!g.deletedAt),events:db.events});
+ if(await handlePersonal(route,req,{db,user,body,send,save,event}))return;
  if(await handleGroups(route,req,{db,user,body,send,save,event}))return;
  if(route==='/api/users'&&req.method==='POST'){
  if(user.role!=='admin')return send(403,{error:'Somente o administrador pode cadastrar pessoas.'});const b=await body(req);if(!text(b.name,80)||!emailValid(b.email)||typeof b.password!=='string'||b.password.length<10||b.password.length>128)return send(400,{error:'Informe nome, e-mail válido e senha de 10 a 128 caracteres.'});if(db.users.some(u=>u.email===b.email.trim().toLowerCase()))return send(409,{error:'Este e-mail já está cadastrado.'});db.users.push({id:randomUUID(),name:text(b.name,80),email:b.email.trim().toLowerCase(),password:hash(b.password),role:'member'});event(user,'Cadastrou uma pessoa');save();return send(201,{ok:true});}
