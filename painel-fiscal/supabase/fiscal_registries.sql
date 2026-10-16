@@ -47,7 +47,8 @@ create function public.fs_save_company(p_id uuid,p_payload jsonb) returns jsonb 
 declare b jsonb:=p_payload; r public.fs_companies; ident uuid:=coalesce(p_id,gen_random_uuid());
  company_name text:=trim(b->>'name'); company_cnpj text:=upper(regexp_replace(coalesce(b->>'cnpj',''),'[./\s-]','','g')); actor text;
 begin
- if auth.uid() is null or not public.fs_is_admin() then raise exception 'Somente o administrador pode alterar empresas.';end if;
+ if auth.uid() is null or not public.fs_is_member() then raise exception 'Acesso negado.';end if;
+ if p_id is not null and not public.fs_is_admin() then raise exception 'Somente o administrador pode editar ou arquivar empresas.';end if;
  if p_id is not null then
   select * into r from public.fs_companies where id=p_id and archived_at is null for update;
   if not found then raise exception 'Empresa não encontrada.';end if;

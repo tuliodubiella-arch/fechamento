@@ -19,6 +19,10 @@ begin
  if not exists(select 1 from public.fs_companies where id=company_id) then raise exception 'Equipe não pode consultar empresa.';end if;
  failed:=false;begin perform public.fs_save_company(company_id,b||'{"version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Membro alterou empresa.';end if;
  failed:=false;begin update public.fs_companies set name='DML indevido' where id=company_id;exception when insufficient_privilege then failed:=true;end;if not failed then raise exception 'DML direto permitido.';end if;
+ -- Membro ativo pode cadastrar uma nova empresa, mas não editar nem arquivar.
+ perform public.fs_save_company(null,b||'{"cnpj":"00000000E08G12","name":"Cadastro por membro"}');
+ if not exists(select 1 from public.fs_companies where name='Cadastro por membro' and cnpj='00000000E08G12') then raise exception 'Membro não cadastrou empresa.';end if;
+ failed:=false;begin perform public.fs_save_company(company_id,'{"action":"archive","version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Membro arquivou empresa.';end if;
  b:='{"title":"Sugestão de teste","description":"Padronizar conferência","benefit":"Reduzir retrabalho","area":"Apuração","owner":"5badf9dd-8990-4ab9-b082-b75a0b89ab01","status":"Concluída","comments":[{"text":"fraude"}]}';
  suggestion_id:=(public.fs_save_suggestion(null,b)->>'id')::uuid;
  select data into result from public.fs_suggestions where id=suggestion_id;
