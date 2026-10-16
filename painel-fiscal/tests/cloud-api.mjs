@@ -9,6 +9,7 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  if(url.includes('/auth/v1/token'))body={access_token:'test-session',refresh_token:'test-refresh',expires_in:3600};
  if(url.endsWith('fs_prepare_attachment'))body={id:'attachment-id',path:'member/attachment-id.png',type:'image/png',name:'print.png'};
  if(url.endsWith('fs_get_state'))body={user:{id:'member'},users:[],items:[{comments:[{attachments:[{path:'member/attachment-id.png'}]}],executions:[],delegations:[]}],events:[]};
+ if(url.endsWith('fs_get_registries'))body={companies:[],suggestions:[]};
  if(url.endsWith('/object/sign/fiscal-prints'))body=[{path:'member/attachment-id.png',signedURL:'/object/sign/fiscal-prints/member/attachment-id.png?token=test'}];
  if(url.endsWith('fs_apply_item')&&conflict){status=400;body={message:'Conflito de versão'};}
  return {status,ok:status===200,json:async()=>body};
@@ -26,5 +27,6 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  await api('items','POST',{groupId:'group-id',title:'Registro'});assert.ok(calls.some(c=>c.url.endsWith('fs_create_group_record')));
  await api('items/item-id','PUT',{action:'record-stage',stageId:'stage-id',version:7});const moved=calls.find(c=>c.url.endsWith('fs_update_record'));assert.deepEqual(JSON.parse(moved.body),{p_id:'item-id',p_payload:{action:'record-stage',stageId:'stage-id',version:7}});
  await api('personal','POST',{title:'Privada',action:'save'});await api('personal/private-id','PUT',{action:'share',version:1});const personal=calls.filter(c=>c.url.endsWith('fs_save_personal'));assert.deepEqual(JSON.parse(personal[0].body),{p_id:null,p_payload:{title:'Privada',action:'save'}});assert.equal(JSON.parse(personal[1].body).p_id,'private-id');assert.ok(calls.some(c=>c.url.endsWith('fs_get_personal')));
+ await api('companies','POST',{name:'Empresa'});await api('companies/company-id','PUT',{version:1,action:'save'});await api('suggestions','POST',{title:'Sugestão'});await api('suggestions/suggestion-id','PUT',{version:1,action:'comment',text:'Olá'});assert.ok(calls.some(c=>c.url.endsWith('fs_save_company')&&JSON.parse(c.body).p_id==='company-id'));assert.ok(calls.some(c=>c.url.endsWith('fs_save_suggestion')&&JSON.parse(c.body).p_id==='suggestion-id'));assert.deepEqual(st.companies,[]);assert.deepEqual(st.suggestions,[]);
  await api('logout','POST',{});await assert.rejects(()=>api('state'),e=>e.status===401);
 });

@@ -1,0 +1,44 @@
+begin;
+insert into auth.users(id,email) values('5badf9dd-8990-4ab9-b082-b75a0b89ab01','registry-admin@example.test'),('5badf9dd-8990-4ab9-b082-b75a0b89ab02','registry-member@example.test'),('5badf9dd-8990-4ab9-b082-b75a0b89ab03','registry-peer@example.test');
+insert into public.fs_members(id,name,email,role) values('5badf9dd-8990-4ab9-b082-b75a0b89ab01','Admin teste','registry-admin@example.test','admin'),('5badf9dd-8990-4ab9-b082-b75a0b89ab02','Membro teste','registry-member@example.test','member'),('5badf9dd-8990-4ab9-b082-b75a0b89ab03','Colega teste','registry-peer@example.test','member');
+do $$begin
+ if not public.fs_valid_cnpj('11.222.333/0001-81') or not public.fs_valid_cnpj('00.000.000/E08G-12') or public.fs_valid_cnpj('11.222.333/0001-82') or public.fs_valid_cnpj('00000000000000') then raise exception 'Validação do CNPJ incorreta.';end if;
+ if has_table_privilege('anon','public.fs_companies','SELECT') or has_function_privilege('anon','public.fs_get_registries()','EXECUTE') or has_function_privilege('anon','public.fs_save_suggestion(uuid,jsonb)','EXECUTE') then raise exception 'Acesso anônimo permitido.';end if;
+end;$$;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','5badf9dd-8990-4ab9-b082-b75a0b89ab01',true);
+do $$
+declare company_id uuid; suggestion_id uuid; b jsonb; failed boolean; result jsonb;
+begin
+ b:='{"name":"Empresa fictícia transacional","cnpj":"11222333000181","city":"Cuiabá","uf":"MT","taxRegime":"Lucro Real","additionalInfo":"Informação complementar de teste"}';
+ company_id:=(public.fs_save_company(null,b)->>'id')::uuid;
+ if not exists(select 1 from jsonb_array_elements(public.fs_get_registries()->'companies') c where c->>'id'=company_id::text and c->>'additionalInfo'=b->>'additionalInfo') then raise exception 'Empresa não foi persistida.';end if;
+ failed:=false;begin perform public.fs_save_company(null,b);exception when others then failed:=true;end;if not failed then raise exception 'CNPJ duplicado permitido.';end if;
+ failed:=false;begin perform public.fs_save_company(null,b||'{"cnpj":"11222333000182"}');exception when others then failed:=true;end;if not failed then raise exception 'CNPJ inválido permitido.';end if;
+ perform set_config('request.jwt.claim.sub','5badf9dd-8990-4ab9-b082-b75a0b89ab02',true);
+ if not exists(select 1 from public.fs_companies where id=company_id) then raise exception 'Equipe não pode consultar empresa.';end if;
+ failed:=false;begin perform public.fs_save_company(company_id,b||'{"version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Membro alterou empresa.';end if;
+ failed:=false;begin update public.fs_companies set name='DML indevido' where id=company_id;exception when insufficient_privilege then failed:=true;end;if not failed then raise exception 'DML direto permitido.';end if;
+ b:='{"title":"Sugestão de teste","description":"Padronizar conferência","benefit":"Reduzir retrabalho","area":"Apuração","owner":"5badf9dd-8990-4ab9-b082-b75a0b89ab01","status":"Concluída","comments":[{"text":"fraude"}]}';
+ suggestion_id:=(public.fs_save_suggestion(null,b)->>'id')::uuid;
+ select data into result from public.fs_suggestions where id=suggestion_id;
+ if result->>'status'<>'Nova' or result->'comments'<>'[]'::jsonb or not exists(select 1 from public.fs_suggestions where id=suggestion_id and owner_id=auth.uid()) then raise exception 'Dados de autorização adulterados.';end if;
+ perform public.fs_save_suggestion(suggestion_id,b||'{"version":1,"title":"Sugestão revisada"}');
+ failed:=false;begin perform public.fs_save_suggestion(suggestion_id,'{"action":"status","status":"Concluída","version":2}');exception when others then failed:=true;end;if not failed then raise exception 'Autor mudou status sem ser administrador.';end if;
+ perform set_config('request.jwt.claim.sub','5badf9dd-8990-4ab9-b082-b75a0b89ab03',true);
+ failed:=false;begin perform public.fs_save_suggestion(suggestion_id,b||'{"version":2}');exception when others then failed:=true;end;if not failed then raise exception 'Colega editou sugestão alheia.';end if;
+ perform public.fs_save_suggestion(suggestion_id,'{"action":"comment","text":"Observação da equipe","version":2,"author":"forjado"}');
+ select data into result from public.fs_suggestions where id=suggestion_id;if result->'comments'->0->>'author'<>'Colega teste' then raise exception 'Autor do comentário adulterado.';end if;
+ perform set_config('request.jwt.claim.sub','5badf9dd-8990-4ab9-b082-b75a0b89ab01',true);
+ failed:=false;begin perform public.fs_save_suggestion(suggestion_id,'{"action":"status","status":"Concluída","version":2}');exception when others then failed:=true;end;if not failed then raise exception 'Conflito ignorado.';end if;
+ perform public.fs_save_suggestion(suggestion_id,'{"action":"status","status":"Em implementação","version":3}');
+ select data into result from public.fs_suggestions where id=suggestion_id;if result->>'status'<>'Em implementação' or jsonb_array_length(result->'comments')<>2 then raise exception 'Status sem rastreabilidade.';end if;
+ perform public.fs_save_suggestion(suggestion_id,'{"action":"archive","version":4}');
+ if exists(select 1 from public.fs_suggestions where id=suggestion_id) then raise exception 'Sugestão arquivada ainda visível.';end if;
+ perform public.fs_save_company(company_id,'{"action":"archive","version":1}');
+ if exists(select 1 from public.fs_companies where id=company_id) then raise exception 'Empresa arquivada ainda visível.';end if;
+ perform set_config('request.jwt.claim.sub','',true);
+ if exists(select 1 from public.fs_companies) or exists(select 1 from public.fs_suggestions) then raise exception 'Conta sem acesso leu registros.';end if;
+end;$$;
+reset role;
+rollback;

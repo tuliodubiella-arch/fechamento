@@ -16,9 +16,11 @@ if(window.FISCAL_CLOUD){
  if(route==='setup')return {required:false};
  if(route==='login'){await auth('token?grant_type=password',{email:body.email,password:body.password});return {};}
  if(route==='logout'){try{await request('/auth/v1/logout','POST',{});}finally{save(null);}return {};}
- if(route==='state'){const [team,personal]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal')]);team.personalItems=personal;return signed(team);}
+ if(route==='state'){const [team,personal,registries]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal'),rpc('fs_get_registries')]);team.personalItems=personal;team.companies=registries.companies;team.suggestions=registries.suggestions;return signed(team);}
  if(route==='personal')return method==='GET'?rpc('fs_get_personal'):rpc('fs_save_personal',{p_id:null,p_payload:body});
  if(route.startsWith('personal/'))return rpc('fs_save_personal',{p_id:route.slice(9),p_payload:body});
+ if(route==='companies'||route.startsWith('companies/'))return rpc('fs_save_company',{p_id:route==='companies'?null:route.slice(10),p_payload:body});
+ if(route==='suggestions'||route.startsWith('suggestions/'))return rpc('fs_save_suggestion',{p_id:route==='suggestions'?null:route.slice(12),p_payload:body});
  if(route==='users')return request('/functions/v1/fiscal-create-member','POST',body);
  if(route==='groups')return rpc('fs_create_group',{p_payload:body});
  if(route.startsWith('groups/'))return rpc('fs_update_group',{p_id:route.slice(7),p_payload:body});
