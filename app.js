@@ -7,8 +7,8 @@ const field = (form, name) => form.elements.namedItem(name);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
-const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.13.2";
+const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
+const APP_VERSION = "2026.10.19.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -16,7 +16,7 @@ const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("
 const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
-  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
+  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
@@ -82,7 +82,7 @@ const recoveryErrorKey = () => `fc_recovery_error_${state.session?.user?.id || "
 const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "closingErrors", "errorFeatureReady", "commentsMonth"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "closingErrors", "errorFeatureReady", "generalRoutines", "generalEvents", "generalNotes", "generalReady", "commentsMonth"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -128,10 +128,14 @@ async function insertCollaborationRecord(item) {
   if (result.error?.code !== "23505") return result;
   const existing = await client.from(item.table).select("*").eq("id", item.row.id).maybeSingle();
   if (existing.error || !existing.data) return result;
-  const fields = item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"]
+  const fields = item.table === "fc_general_routines" ? ["title", "description", "responsible_id", "created_by"]
+    : item.table === "fc_general_routine_notes" ? ["routine_id", "author_id", "body", "occurred_at"]
+    : item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"]
     : item.table === "fc_closing_errors" ? ["company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "system_improvement", "correction_date", "created_by"]
       : ["author_id", "body"];
-  return fields.every((key) => existing.data[key] === item.row[key]) ? { error: null } : result;
+  return fields.every((key) => key === "occurred_at"
+    ? Date.parse(existing.data[key]) === Date.parse(item.row[key])
+    : (existing.data[key] ?? null) === (item.row[key] ?? null)) ? { error: null } : result;
 }
 async function flush() {
   if (!state.online || !state.member || flushing || (state.recoveryHold && !state.recoveryApproved)) return;
@@ -142,7 +146,7 @@ async function flush() {
       let result;
       if (item.kind === "rpc") result = await client.rpc(item.name, item.args);
       else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
-      else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions", "fc_closing_errors"].includes(item.table)) result = await insertCollaborationRecord(item);
+      else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions", "fc_closing_errors", "fc_general_routines", "fc_general_routine_notes"].includes(item.table)) result = await insertCollaborationRecord(item);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
       else if (item.kind === "update") {
         let query = client.from(item.table).update(item.values);
@@ -221,7 +225,7 @@ async function loadData() {
       const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: requestedMonth });
       if (assignmentError) throw assignmentError;
     }
-    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions, closingErrors] = await Promise.all([
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions, closingErrors, generalRoutines, generalEvents, generalNotes] = await Promise.all([
       allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
@@ -229,6 +233,9 @@ async function loadData() {
       allRows("fc_task_comments", { competence: requestedMonth }).then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_improvement_suggestions").then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_closing_errors").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_general_routines").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_general_routine_events").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_general_routine_notes").then((data) => ({ data })).catch((error) => ({ error })),
     ]);
     if (requestedMonth !== state.month) return;
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
@@ -255,6 +262,22 @@ async function loadData() {
         const row = state.closingErrors.find((entry) => entry.id === item.where.id);
         if (row) Object.assign(row, item.values);
       }
+    }
+    state.generalReady = !generalRoutines.error && !generalEvents.error && !generalNotes.error;
+    state.generalError = generalRoutines.error?.message || generalEvents.error?.message || generalNotes.error?.message || "";
+    if (state.generalReady) {
+      const queuedRoutines = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_general_routines").map((item) => item.row);
+      state.generalRoutines = [...generalRoutines.data, ...queuedRoutines.filter((row) => !generalRoutines.data.some((saved) => saved.id === row.id))
+        .map((row) => ({ status: "Não iniciada", total_seconds: 0, started_at: null, first_started_at: null, finished_at: null, ...row }))];
+      state.generalEvents = [...generalEvents.data];
+      for (const item of state.queue.filter((entry) => entry.kind === "rpc" && entry.name === "fc_apply_general_routine")) {
+        const args = item.args, routine = state.generalRoutines.find((row) => row.id === args.p_routine_id);
+        if (!routine || state.generalEvents.some((event) => event.id === args.p_event_id)) continue;
+        Object.assign(routine, nextGeneralRoutineState(routine, args.p_action, args.p_occurred_at));
+        state.generalEvents.push({ id: args.p_event_id, routine_id: args.p_routine_id, action: args.p_action, actor_id: state.member?.id || state.session.user.id, occurred_at: args.p_occurred_at });
+      }
+      const queuedNotes = state.queue.filter((item) => item.kind === "insert" && item.table === "fc_general_routine_notes").map((item) => item.row);
+      state.generalNotes = [...generalNotes.data, ...queuedNotes.filter((row) => !generalNotes.data.some((saved) => saved.id === row.id))];
     }
     state.historyLoaded = true;
     state.member = members.find((person) => person.id === state.session.user.id && person.active) || null;
@@ -650,6 +673,49 @@ function renderClosingErrors() {
       <div class="table-wrap"><table class="error-table"><thead><tr><th>Empresa</th><th>Erro / histórico</th><th>Responsável / solicitação</th><th>Status</th><th>Melhoria em sistema</th><th>Correção</th><th></th></tr></thead><tbody>${rows.map((item) => `<tr><td data-label="Empresa"><strong>${esc(item.company_name)}</strong></td><td data-label="Erro / histórico"><strong>${esc(item.error_label || "Sem código")}</strong><small>${esc(item.description)}</small></td><td data-label="Responsável / solicitação">${esc(item.assigned_user || "—")}<small>Solicitado por ${esc(item.requested_by || "—")} · ${dateBR(item.requested_at)}</small></td><td data-label="Status"><span class="badge ${item.status === "Corrigido" ? "done" : item.status === "Aberto" ? "not-started" : "paused"}">${esc(item.status)}</span>${pending.has(item.id) ? '<small>Aguardando sincronização</small>' : ""}</td><td data-label="Melhoria em sistema">${item.system_improvement === null || item.system_improvement === undefined ? "Não informado" : item.system_improvement ? "Sim" : "Não"}</td><td data-label="Correção">${dateBR(item.correction_date)}</td><td><button class="btn compact" data-action="edit-closing-error" data-id="${esc(item.id)}" ${pending.has(item.id) ? "disabled" : ""}>Editar</button></td></tr>`).join("") || '<tr><td colspan="7" class="empty">Nenhum erro encontrado para este filtro.</td></tr>'}</tbody></table></div>
       <p class="muted">${rows.length} item(ns) exibido(s) de ${all.length}. Sem data de correção, o item permanece em aberto ou em andamento; “Corrigido” exige a data.</p></div></section>`;
 }
+function nextGeneralRoutineState(routine, action, occurredAt) {
+  const elapsed = action !== "play" && routine.status === "Em andamento" && routine.started_at
+    ? Math.max(0, Math.floor((Date.parse(occurredAt) - Date.parse(routine.started_at)) / 1000)) : 0;
+  return {
+    status: action === "play" ? "Em andamento" : action === "pause" ? "Pausada" : "Finalizada",
+    total_seconds: Number(routine.total_seconds || 0) + elapsed,
+    started_at: action === "play" ? occurredAt : null,
+    first_started_at: routine.first_started_at || (action === "play" ? occurredAt : null),
+    finished_at: action === "finish" ? occurredAt : null,
+    updated_at: occurredAt,
+  };
+}
+function generalRoutineSeconds(routine) {
+  return Number(routine.total_seconds || 0) + (routine.status === "Em andamento" && routine.started_at
+    ? Math.max(0, Math.floor((state.tick - Date.parse(routine.started_at)) / 1000)) : 0);
+}
+function renderGeneralRoutines() {
+  const all = state.generalRoutines || [];
+  const search = state.generalSearch.trim().toLocaleLowerCase("pt-BR");
+  const list = all.filter((routine) => (!state.generalMineOnly || routine.responsible_id === state.member.id)
+    && (!state.generalStatusFilter || routine.status === state.generalStatusFilter)
+    && (!search || [routine.title, routine.description, memberName(routine.responsible_id)].some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(search))))
+    .sort((a, b) => (a.status === "Finalizada") - (b.status === "Finalizada") || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const pending = new Set(state.queue.filter((item) => item.table?.startsWith("fc_general_") || item.name === "fc_apply_general_routine")
+    .map((item) => item.row?.routine_id || item.row?.id || item.args?.p_routine_id));
+  const responsibleOptions = state.members.filter((person) => person.active)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
+    .map((person) => `<option value="${esc(person.id)}" ${person.id === (state.generalCreateDraft.responsible_id || state.member.id) ? "selected" : ""}>${esc(person.name)}</option>`).join("");
+  return `<section class="panel general-routines"><div class="panel-head"><div><h2>Rotinas avulsas</h2><p>Atividades fora do fechamento contábil. O tempo e as anotações desta área não entram nos indicadores do balancete mensal.</p></div></div>
+    <div class="panel-body">${state.generalError ? `<div class="notice warn">Não foi possível atualizar as rotinas avulsas: ${esc(state.generalError)}</div>` : ""}
+      <div class="general-summary"><div><strong>${all.filter((item) => item.status !== "Finalizada").length}</strong><span>Em aberto</span></div><div><strong>${all.filter((item) => item.status === "Em andamento").length}</strong><span>Em andamento</span></div><div><strong>${all.filter((item) => item.status === "Finalizada").length}</strong><span>Finalizadas</span></div></div>
+      <details class="general-create" ${state.generalCreateOpen ? "open" : ""}><summary>+ Cadastrar nova rotina</summary><form id="general-routine-form" class="form-grid"><label class="field"><span>Nome da rotina</span><input class="input" name="title" maxlength="200" minlength="3" required value="${esc(state.generalCreateDraft.title || "")}" placeholder="Ex.: Atualizar cadastro de fornecedores"></label><label class="field"><span>Responsável</span><select class="select" name="responsible_id" required>${responsibleOptions}</select></label><label class="field wide"><span>Descrição / objetivo</span><textarea class="input" name="description" rows="3" maxlength="4000" placeholder="Descreva o que precisa ser feito">${esc(state.generalCreateDraft.description || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Cadastrar rotina</button></form></details>
+      <div class="general-filters"><label class="field"><span>Buscar rotina</span><input class="input" id="general-search" value="${esc(state.generalSearch)}" placeholder="Nome, descrição ou responsável"></label><label class="field"><span>Status</span><select class="select" id="general-status-filter"><option value="">Todos</option>${["Não iniciada", "Em andamento", "Pausada", "Finalizada"].map((status) => `<option value="${esc(status)}" ${state.generalStatusFilter === status ? "selected" : ""}>${esc(status)}</option>`).join("")}</select></label><label class="general-mine"><input type="checkbox" id="general-mine" ${state.generalMineOnly ? "checked" : ""}> Somente minhas rotinas</label></div>
+      <div class="general-list">${list.map((routine) => { const canControl = routine.responsible_id === state.member.id || state.member.is_admin;
+        const entries = [
+          ...state.generalEvents.filter((item) => item.routine_id === routine.id).map((item) => ({ type: "event", ...item })),
+          ...state.generalNotes.filter((item) => item.routine_id === routine.id).map((item) => ({ type: "note", ...item })),
+        ].sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)) || String(a.id).localeCompare(String(b.id)));
+        return `<article class="general-card"><div class="general-card-main"><div><h3>${esc(routine.title)}</h3><p>${esc(routine.description || "Sem descrição.")}</p><small>Responsável: ${esc(memberName(routine.responsible_id, "Usuário removido"))} · Criada em ${brasilia(routine.created_at)}</small></div><div class="general-card-status"><span class="badge ${routine.status === "Finalizada" ? "done" : routine.status === "Em andamento" ? "running" : routine.status === "Pausada" ? "paused" : "not-started"}">${esc(routine.status)}</span><strong class="general-live-time" data-id="${esc(routine.id)}">${duration(generalRoutineSeconds(routine))}</strong><small>Tempo acumulado</small>${routine.first_started_at ? `<small>Início: ${brasilia(routine.first_started_at)}</small>` : ""}${routine.finished_at ? `<small>Fim: ${brasilia(routine.finished_at)}</small>` : ""}${pending.has(routine.id) ? '<small>Aguardando sincronização</small>' : ""}</div></div>
+          <div class="general-card-actions"><button class="btn compact play" data-action="general-activity" data-kind="play" data-id="${esc(routine.id)}" ${!canControl || !["Não iniciada", "Pausada"].includes(routine.status) ? "disabled" : ""}>▶ PLAY</button><button class="btn compact pause" data-action="general-activity" data-kind="pause" data-id="${esc(routine.id)}" ${!canControl || routine.status !== "Em andamento" ? "disabled" : ""}>Ⅱ PAUSE</button><button class="btn compact stop" data-action="general-activity" data-kind="finish" data-id="${esc(routine.id)}" ${!canControl || !["Em andamento", "Pausada"].includes(routine.status) ? "disabled" : ""}>■ FINISH</button><button class="btn compact" data-action="general-details" data-id="${esc(routine.id)}">${state.generalOpenId === routine.id ? "Ocultar anotações" : `Anotações e histórico (${entries.length})`}</button></div>
+          ${state.generalOpenId === routine.id ? `<div class="general-details"><h4>Acompanhamento da rotina</h4><div class="general-timeline">${entries.length ? entries.map((entry) => `<div class="general-entry ${entry.type}"><strong>${entry.type === "note" ? "Anotação" : ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[entry.action]}</strong><span>${entry.type === "note" ? esc(entry.body).replace(/\n/g, "<br>") : entry.elapsed_seconds ? `+ ${duration(entry.elapsed_seconds)} de trabalho` : "Registro de tempo"}</span><small>${esc(memberName(entry.author_id || entry.actor_id, "Usuário removido"))} · ${brasilia(entry.occurred_at)}</small></div>`).join("") : '<p class="muted">Ainda não há apontamentos nesta rotina.</p>'}</div>${routine.status !== "Finalizada" ? `<form data-form="general-note" data-routine-id="${esc(routine.id)}"><label class="field"><span>O que foi feito / observações</span><textarea class="input" name="body" rows="3" maxlength="4000" required placeholder="Registre o andamento, impedimentos ou próximos passos">${esc(state.generalNoteDrafts[routine.id] || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar anotação</button></form>` : '<p class="muted">Rotina finalizada. O histórico permanece disponível para consulta.</p>'}</div>` : ""}</article>`;
+      }).join("") || '<div class="empty">Nenhuma rotina encontrada. Cadastre uma nova ou ajuste os filtros.</div>'}</div></div></section>`;
+}
 function renderRegistry() {
   const companyOptions = state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
   const memberOptions = state.members.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
@@ -684,17 +750,23 @@ function pendingDescription(item) {
   const task = state.tasks.find((row) => row.id === taskId) || state.queue.find((row) => (row.kind === "insert" || isLegacyTaskWrite(row)) && row.table === "fc_tasks" && row.row?.id === taskId)?.row;
   const companyId = task?.company_id || item.row?.company_id || item.where?.company_id;
   const company = state.companies.find((row) => row.id === companyId) || state.queue.find((row) => row.table === "fc_companies" && row.row?.id === companyId)?.row;
-  const action = item.kind === "rpc" && item.name === "fc_apply_activity"
+  const action = item.kind === "rpc" && item.name === "fc_apply_general_routine"
+    ? ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[item.args?.p_action] || "Apontamento"
+    : item.kind === "rpc" && item.name === "fc_apply_activity"
     ? ({ play: "PLAY", pause: "PAUSE", stop: "STOP" })[item.args?.p_action] || "Apontamento"
-    : item.table === "fc_task_comments" ? "Comentário de atividade"
+    : item.table === "fc_general_routines" ? "Cadastro de rotina avulsa"
+      : item.table === "fc_general_routine_notes" ? "Anotação de rotina avulsa"
+      : item.table === "fc_task_comments" ? "Comentário de atividade"
       : item.table === "fc_improvement_suggestions" ? "Sugestão de melhoria"
     : item.table === "fc_tasks" && (item.kind === "insert" || isLegacyTaskWrite(item)) ? "Inclusão de rotina"
       : item.kind === "update" ? "Alteração de cadastro" : "Cadastro / ajuste";
-  return { action, target: [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro", month: item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : "—" };
+  const generalId = item.args?.p_routine_id || item.row?.routine_id || (item.table === "fc_general_routines" ? item.row?.id : null);
+  const general = state.generalRoutines.find((row) => row.id === generalId);
+  return { action, target: general?.title || item.row?.title || [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro", month: generalId ? "Fora do fechamento" : item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : item.row?.occurred_at ? brasilia(item.row.occurred_at) : "—" };
 }
 function renderRecoveryPanel() {
   const records = state.queue.map(pendingDescription);
-  const actions = records.filter((item) => ["PLAY", "PAUSE", "STOP"].includes(item.action)).length;
+  const actions = records.filter((item) => ["PLAY", "PAUSE", "STOP", "FINISH"].includes(item.action)).length;
   return `<section class="panel recovery-panel" aria-label="Recuperação dos registros pendentes"><div class="panel-head"><div><h2>Recuperar registros pendentes</h2><p>${state.queue.length} operação(ões) neste navegador, incluindo ${actions} apontamento(s) de tempo.</p></div><span class="badge paused">Envio automático pausado</span></div>
     <div class="panel-body"><p>${state.queue.some(isLegacyTaskWrite) ? "Uma inclusão de rotina anterior foi recusada pelo servidor." : "O servidor recusou a primeira operação pendente."} Os registros seguintes estão preservados neste navegador. Confira a lista, baixe uma cópia de segurança e solicite a análise do administrador antes de tentar novamente. Não limpe os dados do site nem troque de navegador.</p>
     ${state.syncError ? `<div class="notice warn">Última falha: ${esc(state.syncError)}</div>` : ""}
@@ -725,13 +797,13 @@ function render() {
     $("#app").innerHTML = `<div class="auth-screen"><div class="auth-box"><h1>Acesso pendente</h1><p>${esc(state.error || "Peça ao administrador para liberar seu e-mail.")}</p><button class="btn" data-action="logout">Sair</button></div></div>`;
     return;
   }
-  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Controle de erros" ? renderClosingErrors() : state.tab === "Sugestões de melhoria" ? renderSuggestions() : state.tab === "Versões" ? renderVersions() : renderRegistry();
+  const content = state.tab === "Painel Geral" ? renderPanel() : state.tab === "Meu Painel" ? renderMyPanel() : state.tab === "Execução" ? renderExecution() : state.tab === "Rotinas avulsas" ? renderGeneralRoutines() : state.tab === "Metas" ? renderGoals() : state.tab === "Histórico" ? renderHistory() : state.tab === "Controle de erros" ? renderClosingErrors() : state.tab === "Sugestões de melhoria" ? renderSuggestions() : state.tab === "Versões" ? renderVersions() : renderRegistry();
   const recovering = state.recoveryHold && state.queue.length > 0;
   $("#app").innerHTML = `<header class="topbar"><div class="topbar-inner"><div class="brand"><img class="brand-logo" src="brand/logo-principal.png" alt="Grupo Cavalca"><strong>Fechamento contábil</strong></div><div class="top-actions">
-    <select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>
+    ${state.tab === "Rotinas avulsas" ? '<span class="general-month-note">Independente do mês</span>' : `<select class="select" id="month" aria-label="Mês de fechamento" style="width:auto" ${recovering ? "disabled" : ""}>${monthOptions()}</select>`}
     <span class="status-pill ${state.online && !recovering ? "" : "offline"}">${recovering ? `${state.queue.length} pendente(s) · em revisão` : state.online ? state.queue.length ? `${state.queue.length} pendente(s)` : "Sincronizado" : `Offline · ${state.queue.length} pendente(s)`}</span>
     <span style="font-size:12px">${esc(state.member.name)}</span><button class="btn compact" data-action="logout" ${recovering ? "disabled" : ""}>Sair</button></div></div></header>
-    <main class="shell ${["Execução", "Metas", "Controle de erros"].includes(state.tab) ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
+    <main class="shell ${["Execução", "Metas", "Controle de erros", "Rotinas avulsas"].includes(state.tab) ? "wide-workspace" : ["Painel Geral", "Meu Painel"].includes(state.tab) ? "dashboard-workspace" : ""}">${state.error ? `<div class="notice warn">${esc(state.error)}</div>` : ""}
     ${recovering ? renderRecoveryPanel() : ""}<div ${recovering ? "inert" : ""}><nav class="tabs" aria-label="Seções">${[...tabNames, ...(state.member.is_admin ? ["Versões"] : [])].map((name) => `<button data-action="tab" data-tab="${name}" class="${state.tab === name ? "active" : ""}">${name}</button>`).join("")}</nav>${content}</div>${!recovering && state.tab === "Execução" ? renderCommentsPanel() : ""}</main>`;
   document.querySelectorAll('[data-action="task-owner"]').forEach((element) => { element.value = ownerFor(element.dataset.id)?.responsible_id || ""; });
   if (state.tab === "Execução") applyExecutionFilters();
@@ -780,6 +852,21 @@ function act(taskId, action) {
   goal.delivery_at = companyTasks.every((item) => state.states.find((entry) => entry.task_id === item.id && entry.competence === state.month)?.status === "Finalizado")
     ? companyTasks.map((item) => state.states.find((entry) => entry.task_id === item.id && entry.competence === state.month)?.finished_at).filter(Boolean).sort().at(-1) : null;
   enqueue({ kind: "rpc", name: "fc_apply_activity", args: { p_event_id: uid(), p_task_id: taskId, p_competence: state.month, p_action: action, p_occurred_at: now } });
+}
+function actGeneralRoutine(id, action) {
+  const routine = state.generalRoutines.find((item) => item.id === id);
+  if (!state.generalReady || !routine) return toast("Esta rotina ainda não está disponível para apontamentos.");
+  if (routine.responsible_id !== state.member.id && !state.member.is_admin) return toast("Somente o responsável ou um administrador pode controlar esta rotina.");
+  if (action === "play" && !["Não iniciada", "Pausada"].includes(routine.status)) return;
+  if (action === "pause" && routine.status !== "Em andamento") return toast("Inicie a rotina antes de pausá-la.");
+  if (action === "finish" && !["Em andamento", "Pausada"].includes(routine.status)) return toast("Inicie a rotina antes de finalizá-la.");
+  if (action === "finish" && !confirm(`Finalizar a rotina “${routine.title}”? O cronômetro será encerrado e as anotações ficarão disponíveis para consulta.`)) return;
+  const now = new Date().toISOString(), eventId = uid();
+  const next = nextGeneralRoutineState(routine, action, now);
+  const elapsed = Number(next.total_seconds) - Number(routine.total_seconds || 0);
+  Object.assign(routine, next);
+  state.generalEvents.push({ id: eventId, routine_id: id, action, actor_id: state.member.id, occurred_at: now, elapsed_seconds: elapsed });
+  enqueue({ kind: "rpc", name: "fc_apply_general_routine", args: { p_event_id: eventId, p_routine_id: id, p_action: action, p_occurred_at: now } });
 }
 async function resetActivity(taskId, button) {
   if (!state.member?.is_admin || isHistorical()) return;
@@ -901,7 +988,7 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form"].includes(form.id)) return;
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form", "general-routine-form"].includes(form.id) && form.dataset.form !== "general-note") return;
   event.preventDefault();
   try {
     if (form.id === "auth-form") {
@@ -917,6 +1004,31 @@ document.addEventListener("submit", async (event) => {
         state.session = data.session; loadCache(); await loadData();
       }
     } else if (form.id === "invite-form") await inviteMember(form);
+    else if (form.id === "general-routine-form") {
+      if (!state.generalReady) throw new Error("As rotinas avulsas ainda não estão disponíveis neste aparelho.");
+      const title = field(form, "title").value.trim();
+      const description = field(form, "description").value.trim() || null;
+      const responsibleId = field(form, "responsible_id").value;
+      if (title.length < 3 || title.length > 200 || !state.members.some((item) => item.id === responsibleId && item.active))
+        throw new Error("Informe um nome e um responsável ativo para a rotina.");
+      const row = { id: uid(), title, description, responsible_id: responsibleId, created_by: state.member.id };
+      state.generalRoutines.push({ ...row, created_at: new Date().toISOString(), status: "Não iniciada", total_seconds: 0, started_at: null, first_started_at: null, finished_at: null });
+      state.generalOpenId = row.id;
+      state.generalCreateDraft = {}; state.generalCreateOpen = false;
+      state.generalSearch = ""; state.generalStatusFilter = ""; state.generalMineOnly = false;
+      enqueue({ kind: "insert", table: "fc_general_routines", row });
+    }
+    else if (form.dataset.form === "general-note") {
+      if (!state.generalReady) throw new Error("As anotações ainda não estão disponíveis neste aparelho.");
+      const routine = state.generalRoutines.find((item) => item.id === form.dataset.routineId);
+      if (!routine || routine.status === "Finalizada") throw new Error("Esta rotina já foi finalizada.");
+      const body = field(form, "body").value.trim();
+      if (!body || body.length > 4000) throw new Error("Informe uma anotação de até 4.000 caracteres.");
+      const row = { id: uid(), routine_id: routine.id, author_id: state.member.id, body, occurred_at: new Date().toISOString() };
+      state.generalNotes.push({ ...row, created_at: row.occurred_at });
+      delete state.generalNoteDrafts[routine.id];
+      enqueue({ kind: "insert", table: "fc_general_routine_notes", row });
+    }
     else if (form.id === "closing-error-form") {
       if (!state.errorFeatureReady) throw new Error("O controle de erros ainda não está disponível neste aparelho.");
       const id = field(form, "id").value;
@@ -1006,13 +1118,19 @@ document.addEventListener("submit", async (event) => {
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "search") { state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#search"); input.focus(); input.setSelectionRange(pos, pos); }
+  if (event.target.id === "general-search") { state.generalSearch = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#general-search"); input.focus(); input.setSelectionRange(pos, pos); }
   if (event.target.id === "error-search") { state.errorSearch = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#error-search"); input.focus(); input.setSelectionRange(pos, pos); }
   if (event.target.form?.id === "comment-form") state.commentDrafts[event.target.form.dataset.taskId] = event.target.value;
+  if (event.target.form?.id === "general-routine-form") { state.generalCreateDraft[event.target.name] = event.target.value; state.generalCreateOpen = true; }
+  if (event.target.form?.dataset.form === "general-note") state.generalNoteDrafts[event.target.form.dataset.routineId] = event.target.value;
   if (event.target.form?.id === "suggestion-form") state.suggestionDraft = event.target.value;
   if (event.target.matches("[data-suggestion-reason]")) state.suggestionReasonDrafts[event.target.dataset.suggestionReason] = event.target.value;
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
+  if (element.form?.id === "general-routine-form") { state.generalCreateDraft[element.name] = element.value; state.generalCreateOpen = true; return; }
+  if (element.id === "general-status-filter") { state.generalStatusFilter = element.value; render(); return; }
+  if (element.id === "general-mine") { state.generalMineOnly = element.checked; render(); return; }
   if (element.id === "error-status-filter") { state.errorStatusFilter = element.value; render(); return; }
   if (element.id === "queue-backup-confirm") { state.recoveryBackupConfirmed = element.checked && state.recoveryBackupRequested; render(); return; }
   if (element.matches("[data-status-filter]")) {
@@ -1057,6 +1175,8 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
+  if (action === "general-activity") { actGeneralRoutine(id, button.dataset.kind); return; }
+  if (action === "general-details") { state.generalOpenId = state.generalOpenId === id ? "" : id; render(); return; }
   if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) field(form, "id").value = ""; return; }
   if (action === "edit-closing-error") {
     const item = state.closingErrors.find((row) => row.id === id);
@@ -1201,6 +1321,12 @@ window.addEventListener("offline", () => { state.online = false; render(); });
 window.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.commentTaskId) { state.commentTaskId = ""; render(); } });
 setInterval(() => {
   state.tick = Date.now();
+  if (state.tab === "Rotinas avulsas") {
+    document.querySelectorAll(".general-live-time").forEach((element) => {
+      const routine = state.generalRoutines.find((item) => item.id === element.dataset.id);
+      if (routine) element.textContent = duration(generalRoutineSeconds(routine));
+    });
+  }
   if (state.tab !== "Execução") return;
   document.querySelectorAll(".live-time").forEach((element) => { element.textContent = duration(currentSeconds(taskState(element.dataset.id))); });
 }, 1000);
