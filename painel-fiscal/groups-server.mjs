@@ -23,6 +23,10 @@ export async function handleGroups(route,req,{db,user,body,send,save,event}){
  if(user.role!=='admin')fail('Somente o administrador pode excluir grupos.',403);
  const records=db.items.filter(i=>i.groupId===group.id&&!i.deletedAt),at=new Date().toISOString();group.deletedAt=at;group.deletedBy=user.id;for(const i of records){i.deletedAt=at;i.deletedBy=user.id;i.version++;}event(user,'Excluiu grupo e '+records.length+' registros',group);
  }else if(b.action==='update-group'){
- if(user.role!=='admin'&&user.id!==group.owner)fail('Somente o responsável ou administrador pode editar o grupo.',403);if(!text(b.title,150)||!db.users.some(u=>u.id===b.owner))fail('Revise nome e responsável.');group.title=text(b.title,150);group.description=text(b.description);group.owner=b.owner;event(user,'Atualizou grupo',group);
+ if(!text(b.title,150)||!db.users.some(u=>u.id===b.owner))fail('Revise nome e responsável.');group.title=text(b.title,150);group.description=text(b.description);group.owner=b.owner;event(user,'Atualizou grupo',group);
+ }else if(b.action==='reorder-records'){
+ const ids=db.items.filter(i=>i.groupId===group.id&&!i.deletedAt).map(i=>i.id);
+ if(!Array.isArray(b.ids)||b.ids.length!==ids.length||new Set(b.ids).size!==ids.length||b.ids.some(id=>!ids.includes(id)))fail('A lista do grupo mudou. Atualize e tente novamente.');
+ group.recordOrder=b.ids;event(user,'Reorganizou registros do grupo',group);
  }else fail('Operação inválida.');group.version++;group.updatedAt=new Date().toISOString();save();send(200,{ok:true});return true;
 }

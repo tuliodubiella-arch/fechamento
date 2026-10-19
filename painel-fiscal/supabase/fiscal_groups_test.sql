@@ -16,7 +16,7 @@ begin
  failed:=false;begin perform public.fs_apply_item(record_id,jsonb_build_object('action','status','version',i.version,'status','Concluída'));exception when others then failed:=true;end;if not failed then raise exception 'Status ficou inconsistente com a etapa.';end if;
  perform set_config('request.jwt.claim.sub',member_id::text,true);
  failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','delete-group','version',1));exception when others then failed:=true;end;if not failed then raise exception 'Membro excluiu grupo.';end if;
- failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','update-group','version',1,'title','Não permitido','owner',member_id));exception when others then failed:=true;end;if not failed then raise exception 'Membro editou grupo de outra pessoa.';end if;
+ perform public.fs_update_group(gid,jsonb_build_object('action','update-group','version',1,'title','Grupo editado por membro','owner',administrator));select * into g from public.fs_groups where id=gid;
  perform public.fs_update_record(record_id,jsonb_build_object('action','record-stage','version',i.version,'stageId',g.data->'stages'->3->>'id'));select * into i from public.fs_items where id=record_id;
  if i.data->>'status'<>'Concluída' or i.data->'comments'->0->>'text'<>'Comentário preservado' then raise exception 'Movimentação perdeu dados.';end if;
  failed:=false;begin perform public.fs_update_record(record_id,jsonb_build_object('action','record-stage','version',i.version-1,'stageId',g.data->'stages'->1->>'id'));exception when others then failed:=true;end;if not failed then raise exception 'Conflito ignorado.';end if;
@@ -24,7 +24,7 @@ begin
  other_id:=(public.fs_create_item(payload-'groupId')->>'id')::uuid;
  perform public.fs_update_record(other_id,jsonb_build_object('action','record-settings','version',1,'groupId',gid,'company','Empresa B'));select * into i from public.fs_items where id=other_id;
  perform public.fs_update_record(other_id,jsonb_build_object('action','record-settings','version',i.version,'groupId','','company','Empresa B'));
- select data into snapshot from public.fs_items where id=record_id;perform public.fs_update_group(gid,jsonb_build_object('action','delete-group','version',1));
+ select data into snapshot from public.fs_items where id=record_id;perform public.fs_update_group(gid,jsonb_build_object('action','delete-group','version',g.version));
  select * into i from public.fs_items where id=record_id;if i.deleted_at is null or i.data<>snapshot then raise exception 'Exclusão perdeu dados do registro.';end if;
  if not exists(select 1 from public.fs_items where id=other_id and deleted_at is null) then raise exception 'Exclusão afetou rotina fora do grupo.';end if;
  if exists(select 1 from jsonb_array_elements(public.fs_get_state()->'groups') x where x->>'id'=gid::text) then raise exception 'Grupo excluído segue nos quadros.';end if;

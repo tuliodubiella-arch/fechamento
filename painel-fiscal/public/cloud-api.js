@@ -25,7 +25,7 @@ if(window.FISCAL_CLOUD){
  if(route==='groups')return rpc('fs_create_group',{p_payload:body});
  if(route.startsWith('groups/'))return rpc('fs_update_group',{p_id:route.slice(7),p_payload:body});
  if(route==='items')return rpc(body.groupId?'fs_create_group_record':'fs_create_item',{p_payload:body});
- if(route.startsWith('items/')){const id=route.slice(6);if(body.action==='record-stage'||body.action==='record-settings')return rpc('fs_update_record',{p_id:id,p_payload:body});if(body.action==='delete-item')return rpc('fs_delete_item',{p_id:id,p_version:body.version});if(body.action==='delete-activity')return rpc('fs_delete_activity',{p_id:id,p_activity_id:body.id,p_version:body.version});const images=await uploads(id,body.attachments||[]);try{return await rpc('fs_apply_item',{p_id:id,p_payload:{...body,attachments:images.map(a=>a.id)}});}catch(e){await cleanup(images);throw e;}}
+ if(route.startsWith('items/')){const id=route.slice(6);if(['record-edit','edit-activity','reorder-activities'].includes(body.action))return rpc('fs_edit_group_item',{p_id:id,p_payload:body});if(body.action==='record-stage'||body.action==='record-settings')return rpc('fs_update_record',{p_id:id,p_payload:body});if(body.action==='delete-item')return rpc('fs_delete_item',{p_id:id,p_version:body.version});if(body.action==='delete-activity')return rpc('fs_delete_activity',{p_id:id,p_activity_id:body.id,p_version:body.version});const images=await uploads(id,body.attachments||[]);try{return await rpc('fs_apply_item',{p_id:id,p_payload:{...body,attachments:images.map(a=>a.id)}});}catch(e){await cleanup(images);throw e;}}
  throw Error('Operação desconhecida.');
  }};
 }

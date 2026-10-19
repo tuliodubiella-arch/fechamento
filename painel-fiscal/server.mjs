@@ -73,10 +73,22 @@ const server=http.createServer(async(req,res)=>{
  const match=route.match(/^\/api\/items\/([^/]+)$/);if(match&&req.method==='PUT'){
  const b=await body(req);const item=db.items.find(i=>i.id===match[1]&&!i.deletedAt);if(!item)return send(404,{error:'Registro não encontrado ou já excluído.'});if(b.version!==item.version)return send(409,{error:'Outra pessoa atualizou este registro. Os dados foram recarregados; confira antes de repetir.'});
  const action=b.action;
+ if(['record-edit','edit-activity','reorder-activities'].includes(action)&&!db.groups.some(g=>g.id===item.groupId&&!g.deletedAt))return send(400,{error:'Este registro não pertence a um grupo ativo.'});
  if(action==='delete-item'){
  if(user.role!=='admin')return send(403,{error:'Somente o administrador pode excluir rotinas e projetos.'});item.deletedAt=new Date().toISOString();item.deletedBy=user.id;event(user,item.type==='project'?'Excluiu o projeto':'Excluiu a rotina',item);
  }
  else if(action==='record-stage'||action==='record-settings'){event(user,setGroupRecord(db,item,b),item);}
+ else if(action==='record-edit'){
+ if(!item.groupId||!text(b.title,150)||String(b.title).length>150||String(b.description||'').length>2000||!db.users.some(u=>u.id===b.owner)||!dateValid(b.start)||!dateValid(b.end)||b.end<b.start||!['Baixa','Média','Alta'].includes(b.priority)||!['Diária','Semanal','Mensal','Única'].includes(b.frequency))return send(400,{error:'Revise os campos do registro.'});
+ Object.assign(item,{title:text(b.title,150),description:text(b.description),owner:b.owner,start:b.start,end:b.end,priority:b.priority,frequency:b.frequency});event(user,'Editou dados do registro',item);
+ }
+ else if(action==='edit-activity'){
+ const a=item.activities.find(a=>a.id===b.id);if(!a||!text(b.title,200)||String(b.title).length>200)return send(400,{error:'Revise a atividade e seu título.'});a.title=text(b.title,200);event(user,'Editou atividade',item);
+ }
+ else if(action==='reorder-activities'){
+ const ids=item.activities.map(a=>a.id);if(!Array.isArray(b.ids)||b.ids.length!==ids.length||new Set(b.ids).size!==ids.length||b.ids.some(id=>!ids.includes(id)))return send(400,{error:'A lista de atividades mudou. Reabra o registro e tente novamente.'});
+ item.activities=b.ids.map(id=>item.activities.find(a=>a.id===id));event(user,'Reorganizou atividades',item);
+ }
  else if(action==='status'&&['Planejada','Em andamento','Concluída','Bloqueada'].includes(b.status)){if(item.groupId)return send(400,{error:'Altere a etapa do registro para atualizar seu status.'});item.status=b.status;event(user,`Alterou o status para ${b.status}`,item);}
  else if(action==='activity'&&text(b.title,200)){item.activities.push({id:randomUUID(),title:text(b.title,200),done:false});event(user,'Adicionou atividade',item);}
  else if(action==='delegate'){

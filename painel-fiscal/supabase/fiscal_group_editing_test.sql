@@ -1,0 +1,58 @@
+begin;
+do $$
+declare administrator uuid; member_id uuid; gid uuid; g public.fs_groups; record_id uuid; other_id uuid; i public.fs_items; snapshot jsonb; failed boolean; payload jsonb; second_id uuid; aid text; bid text;
+begin
+ select id into administrator from public.fs_members where role='admin' and active limit 1;
+ select id into member_id from public.fs_members where role='member' and active limit 1;
+ if member_id is null then select id into member_id from auth.users where id not in(select id from public.fs_members) limit 1;insert into public.fs_members(id,name,email) select id,'Teste transacional',email from auth.users where id=member_id;end if;
+ if administrator is null or member_id is null then raise exception 'Contas de teste não encontradas.';end if;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ gid:=(public.fs_create_group(jsonb_build_object('title','Grupo transacional','owner',administrator,'stages','[{"name":"Em preparação","status":"Planejada"},{"name":"Protocolado","status":"Em andamento"},{"name":"Em exigência","status":"Bloqueada"},{"name":"Concluído","status":"Concluída"}]'::jsonb))->>'id')::uuid;
+ select * into g from public.fs_groups where id=gid;
+ payload:=jsonb_build_object('title','Registro transacional','type','routine','owner',administrator,'start','2026-10-14','end','2026-10-20','frequency','Única','groupId',gid,'company','Empresa teste','registry','Junta teste','protocol','123');
+ record_id:=(public.fs_create_group_record(payload)->>'id')::uuid;select * into i from public.fs_items where id=record_id;
+ if i.data->>'groupId'<>gid::text or i.data->>'company'<>'Empresa teste' or i.data->>'status'<>'Planejada' then raise exception 'Registro criado incorretamente.';end if;
+ perform public.fs_apply_item(record_id,jsonb_build_object('action','comment','version',i.version,'text','Comentário preservado'));select * into i from public.fs_items where id=record_id;
+ failed:=false;begin perform public.fs_apply_item(record_id,jsonb_build_object('action','status','version',i.version,'status','Concluída'));exception when others then failed:=true;end;if not failed then raise exception 'Status ficou inconsistente com a etapa.';end if;
+ perform set_config('request.jwt.claim.sub',member_id::text,true);
+ failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','delete-group','version',1));exception when others then failed:=true;end;if not failed then raise exception 'Membro excluiu grupo.';end if;
+ perform public.fs_update_group(gid,jsonb_build_object('action','update-group','version',1,'title','Grupo editado por membro','owner',administrator));select * into g from public.fs_groups where id=gid;
+
+ second_id:=(public.fs_create_group_record(payload||jsonb_build_object('title','Segundo registro'))->>'id')::uuid;
+ perform public.fs_update_group(gid,jsonb_build_object('action','reorder-records','version',g.version,'ids',jsonb_build_array(second_id,record_id)));select * into g from public.fs_groups where id=gid;
+ if g.data->'recordOrder'<>jsonb_build_array(second_id,record_id) then raise exception 'Ordem não persistiu.';end if;
+ failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','reorder-records','version',g.version-1,'ids',jsonb_build_array(record_id,second_id)));exception when others then failed:=true;end;if not failed then raise exception 'Conflito de grupo ignorado.';end if;
+ failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','reorder-records','version',g.version,'ids',jsonb_build_array(record_id,record_id)));exception when others then failed:=true;end;if not failed then raise exception 'Duplicação aceita.';end if;
+ failed:=false;begin perform public.fs_update_group(gid,jsonb_build_object('action','reorder-records','version',g.version,'ids',jsonb_build_array(record_id,gen_random_uuid())));exception when others then failed:=true;end;if not failed then raise exception 'Registro externo aceito.';end if;
+ perform public.fs_edit_group_item(record_id,payload||jsonb_build_object('action','record-edit','version',i.version,'title','Editado por membro','priority','Alta'));select * into i from public.fs_items where id=record_id;
+ if i.data->>'title'<>'Editado por membro' or i.data->'comments'->0->>'text'<>'Comentário preservado' or i.data->>'owner'<>administrator::text then raise exception 'Edição perdeu dados.';end if;
+ perform public.fs_apply_item(record_id,jsonb_build_object('action','activity','version',i.version,'title','Atividade A'));select * into i from public.fs_items where id=record_id;
+ perform public.fs_apply_item(record_id,jsonb_build_object('action','activity','version',i.version,'title','Atividade B'));select * into i from public.fs_items where id=record_id;aid:=i.data->'activities'->0->>'id';bid:=i.data->'activities'->1->>'id';
+ perform public.fs_apply_item(record_id,jsonb_build_object('action','toggle','version',i.version,'id',aid));select * into i from public.fs_items where id=record_id;
+ perform public.fs_edit_group_item(record_id,jsonb_build_object('action','edit-activity','version',i.version,'id',aid,'title','Atividade editada'));select * into i from public.fs_items where id=record_id;
+ perform public.fs_edit_group_item(record_id,jsonb_build_object('action','reorder-activities','version',i.version,'ids',jsonb_build_array(bid,aid)));select * into i from public.fs_items where id=record_id;
+ if i.data->'activities'->1->>'id'<>aid or i.data->'activities'->1->>'done'<>'true' or i.data->'activities'->1->>'title'<>'Atividade editada' then raise exception 'Atividade alterada ao reordenar.';end if;
+ failed:=false;begin perform public.fs_edit_group_item(record_id,jsonb_build_object('action','reorder-activities','version',i.version,'ids',jsonb_build_array(aid,aid)));exception when others then failed:=true;end;if not failed then raise exception 'Atividade duplicada aceita.';end if;
+ failed:=false;begin perform public.fs_edit_group_item(record_id,jsonb_build_object('action','edit-activity','version',i.version-1,'id',aid,'title','Conflito'));exception when others then failed:=true;end;if not failed then raise exception 'Conflito de item ignorado.';end if;
+ perform set_config('request.jwt.claim.sub','',true);
+ failed:=false;begin perform public.fs_edit_group_item(record_id,jsonb_build_object('action','edit-activity','version',i.version,'id',aid,'title','Sem login'));exception when others then failed:=true;end;if not failed then raise exception 'Sem login editou atividade.';end if;
+ perform set_config('request.jwt.claim.sub',member_id::text,true);
+ perform public.fs_update_record(record_id,jsonb_build_object('action','record-stage','version',i.version,'stageId',g.data->'stages'->3->>'id'));
+select * into i from public.fs_items where id=record_id;
+ if i.data->>'status'<>'Concluída' or i.data->'comments'->0->>'text'<>'Comentário preservado' then raise exception 'Movimentação perdeu dados.';end if;
+ failed:=false;begin perform public.fs_update_record(record_id,jsonb_build_object('action','record-stage','version',i.version-1,'stageId',g.data->'stages'->1->>'id'));exception when others then failed:=true;end;if not failed then raise exception 'Conflito ignorado.';end if;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ other_id:=(public.fs_create_item(payload-'groupId')->>'id')::uuid;
+ perform public.fs_update_record(other_id,jsonb_build_object('action','record-settings','version',1,'groupId',gid,'company','Empresa B'));select * into i from public.fs_items where id=other_id;
+ perform public.fs_update_record(other_id,jsonb_build_object('action','record-settings','version',i.version,'groupId','','company','Empresa B'));
+
+ perform set_config('request.jwt.claim.sub',member_id::text,true);
+ failed:=false;begin perform public.fs_edit_group_item(other_id,jsonb_build_object('action','reorder-activities','version',(select version from public.fs_items where id=other_id),'ids','[]'::jsonb));exception when others then failed:=true;end;if not failed then raise exception 'Permitiu editar atividades fora dos grupos.';end if;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ select data into snapshot from public.fs_items where id=record_id;perform public.fs_update_group(gid,jsonb_build_object('action','delete-group','version',g.version));
+ select * into i from public.fs_items where id=record_id;if i.deleted_at is null or i.data<>snapshot then raise exception 'Exclusão perdeu dados do registro.';end if;
+ if not exists(select 1 from public.fs_items where id=other_id and deleted_at is null) then raise exception 'Exclusão afetou rotina fora do grupo.';end if;
+ if exists(select 1 from jsonb_array_elements(public.fs_get_state()->'groups') x where x->>'id'=gid::text) then raise exception 'Grupo excluído segue nos quadros.';end if;
+ failed:=false;begin perform public.fs_create_group_record(payload);exception when others then failed:=true;end;if not failed then raise exception 'Criou registro em grupo excluído.';end if;
+end; $$;
+rollback;
