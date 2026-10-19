@@ -10,6 +10,8 @@ test('cadastros: CNPJ numérico e alfanumérico, filtro e conteúdo protegido',a
  for(const value of ['00000000000000','11222333000182','1122233300018','<11222333000181>','AAAAAAAAAAAA00'])assert.equal(get(`validCnpj('${value}')`),false,value);
  assert.ok(get('companiesContent()').includes('data-company-new'));assert.ok(get('companiesContent()').includes('Empresa &lt;A&gt;'));assert.ok(get('suggestionsContent()').includes('Melhoria &lt;A&gt;'));
  get("companyRegime='Simples Nacional'");assert.ok(!get('companiesContent()').includes('data-company-open='));get("companyRegime='';companySearch='Cuiabá'");assert.ok(get('companiesContent()').includes('data-company-open='));
- get("var companyFormHtml='';function show(html){companyFormHtml=html;}function submit(){};function modalHead(){return '';}companyForm();");assert.ok(get('companyFormHtml').includes('Salvar empresa'));get("companyFormHtml='';companyForm('c1')");assert.equal(get('companyFormHtml'),'');
- get("state.user.role='admin'");assert.ok(get('companiesContent()').includes('data-company-new'));
+ get("var companyFormHtml='';function show(html){companyFormHtml=html;}function submit(){};function modalHead(){return '';}companyForm();");assert.ok(get('companyFormHtml').includes('Salvar empresa'));get("companyFormHtml='';companyForm('c1')");assert.ok(get('companyFormHtml').includes('value="Empresa &lt;A&gt;"'));assert.ok(get('companiesContent()').includes('data-company-edit="c1"'));
+ get("function time(){return '';}function $(){return {addEventListener(){}};}companyView('c1');");assert.ok(get('companyFormHtml').includes('id="company-edit"'));assert.ok(!get('companyFormHtml').includes('id="company-archive"'));
+
+ get("state.user.role='admin'");assert.ok(get('companiesContent()').includes('data-company-new'));get("companyView('c1')");assert.ok(get('companyFormHtml').includes('id="company-archive"'));
 });

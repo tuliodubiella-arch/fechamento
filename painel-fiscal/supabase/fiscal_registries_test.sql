@@ -17,12 +17,14 @@ begin
  failed:=false;begin perform public.fs_save_company(null,b||'{"cnpj":"11222333000182"}');exception when others then failed:=true;end;if not failed then raise exception 'CNPJ inválido permitido.';end if;
  perform set_config('request.jwt.claim.sub','5badf9dd-8990-4ab9-b082-b75a0b89ab02',true);
  if not exists(select 1 from public.fs_companies where id=company_id) then raise exception 'Equipe não pode consultar empresa.';end if;
- failed:=false;begin perform public.fs_save_company(company_id,b||'{"version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Membro alterou empresa.';end if;
+ perform public.fs_save_company(company_id,b||'{"version":1,"name":"Empresa editada por membro","city":"Várzea Grande","additionalInfo":"Edição da equipe"}');
+ if not exists(select 1 from public.fs_companies where id=company_id and name='Empresa editada por membro' and city='Várzea Grande' and additional_info='Edição da equipe' and version=2) then raise exception 'Edição por membro não persistiu.';end if;
+ failed:=false;begin perform public.fs_save_company(company_id,b||'{"version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Conflito na edição da empresa ignorado.';end if;
  failed:=false;begin update public.fs_companies set name='DML indevido' where id=company_id;exception when insufficient_privilege then failed:=true;end;if not failed then raise exception 'DML direto permitido.';end if;
- -- Membro ativo pode cadastrar uma nova empresa, mas não editar nem arquivar.
+ -- Membro ativo pode cadastrar e editar; arquivamento permanece administrativo.
  perform public.fs_save_company(null,b||'{"cnpj":"00000000E08G12","name":"Cadastro por membro"}');
  if not exists(select 1 from public.fs_companies where name='Cadastro por membro' and cnpj='00000000E08G12') then raise exception 'Membro não cadastrou empresa.';end if;
- failed:=false;begin perform public.fs_save_company(company_id,'{"action":"archive","version":1}');exception when others then failed:=true;end;if not failed then raise exception 'Membro arquivou empresa.';end if;
+ failed:=false;begin perform public.fs_save_company(company_id,'{"action":"archive","version":2}');exception when others then failed:=true;end;if not failed then raise exception 'Membro arquivou empresa.';end if;
  b:='{"title":"Sugestão de teste","description":"Padronizar conferência","benefit":"Reduzir retrabalho","area":"Apuração","owner":"5badf9dd-8990-4ab9-b082-b75a0b89ab01","status":"Concluída","comments":[{"text":"fraude"}]}';
  suggestion_id:=(public.fs_save_suggestion(null,b)->>'id')::uuid;
  select data into result from public.fs_suggestions where id=suggestion_id;
@@ -39,9 +41,10 @@ begin
  select data into result from public.fs_suggestions where id=suggestion_id;if result->>'status'<>'Em implementação' or jsonb_array_length(result->'comments')<>2 then raise exception 'Status sem rastreabilidade.';end if;
  perform public.fs_save_suggestion(suggestion_id,'{"action":"archive","version":4}');
  if exists(select 1 from public.fs_suggestions where id=suggestion_id) then raise exception 'Sugestão arquivada ainda visível.';end if;
- perform public.fs_save_company(company_id,'{"action":"archive","version":1}');
+ perform public.fs_save_company(company_id,'{"action":"archive","version":2}');
  if exists(select 1 from public.fs_companies where id=company_id) then raise exception 'Empresa arquivada ainda visível.';end if;
  perform set_config('request.jwt.claim.sub','',true);
+ failed:=false;begin perform public.fs_save_company(company_id,b||'{"version":2}');exception when others then failed:=true;end;if not failed then raise exception 'Conta sem acesso alterou empresa.';end if;
  if exists(select 1 from public.fs_companies) or exists(select 1 from public.fs_suggestions) then raise exception 'Conta sem acesso leu registros.';end if;
 end;$$;
 reset role;
