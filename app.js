@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.19.1";
+const APP_VERSION = "2026.10.20.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -16,7 +16,7 @@ const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("
 const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
   session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
-  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
+  states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalRecurrenceDrafts: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
@@ -128,7 +128,7 @@ async function insertCollaborationRecord(item) {
   if (result.error?.code !== "23505") return result;
   const existing = await client.from(item.table).select("*").eq("id", item.row.id).maybeSingle();
   if (existing.error || !existing.data) return result;
-  const fields = item.table === "fc_general_routines" ? ["title", "description", "responsible_id", "created_by"]
+  const fields = item.table === "fc_general_routines" ? ["title", "description", "responsible_id", "created_by", "recurrence_frequency", "next_scheduled_date", "recurrence_day"]
     : item.table === "fc_general_routine_notes" ? ["routine_id", "author_id", "body", "occurred_at"]
     : item.table === "fc_task_comments" ? ["task_id", "competence", "author_id", "body"]
     : item.table === "fc_closing_errors" ? ["company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "system_improvement", "correction_date", "created_by"]
@@ -270,9 +270,16 @@ async function loadData() {
       state.generalRoutines = [...generalRoutines.data, ...queuedRoutines.filter((row) => !generalRoutines.data.some((saved) => saved.id === row.id))
         .map((row) => ({ status: "Não iniciada", total_seconds: 0, started_at: null, first_started_at: null, finished_at: null, ...row }))];
       state.generalEvents = [...generalEvents.data];
-      for (const item of state.queue.filter((entry) => entry.kind === "rpc" && entry.name === "fc_apply_general_routine")) {
+      for (const item of state.queue.filter((entry) => entry.kind === "rpc" && ["fc_apply_general_routine", "fc_set_general_recurrence"].includes(entry.name))) {
         const args = item.args, routine = state.generalRoutines.find((row) => row.id === args.p_routine_id);
-        if (!routine || state.generalEvents.some((event) => event.id === args.p_event_id)) continue;
+        if (!routine) continue;
+        if (item.name === "fc_set_general_recurrence") {
+          Object.assign(routine, { recurrence_frequency: args.p_frequency, next_scheduled_date: args.p_next_scheduled_date,
+            recurrence_day: args.p_next_scheduled_date ? (routine.recurrence_frequency === "monthly" && routine.next_scheduled_date === args.p_next_scheduled_date
+              ? routine.recurrence_day : Number(args.p_next_scheduled_date.slice(-2))) : null });
+          continue;
+        }
+        if (state.generalEvents.some((event) => event.id === args.p_event_id)) continue;
         Object.assign(routine, nextGeneralRoutineState(routine, args.p_action, args.p_occurred_at));
         state.generalEvents.push({ id: args.p_event_id, routine_id: args.p_routine_id, action: args.p_action, actor_id: state.member?.id || state.session.user.id, occurred_at: args.p_occurred_at });
       }
@@ -689,6 +696,12 @@ function generalRoutineSeconds(routine) {
   return Number(routine.total_seconds || 0) + (routine.status === "Em andamento" && routine.started_at
     ? Math.max(0, Math.floor((state.tick - Date.parse(routine.started_at)) / 1000)) : 0);
 }
+function generalRecurrenceFields(frequency, nextDate) {
+  const monthly = frequency === "monthly";
+  return `<label class="field"><span>Recorrência</span><select class="select" name="recurrence_frequency"><option value="none" ${monthly ? "" : "selected"}>Não recorrente</option><option value="monthly" ${monthly ? "selected" : ""}>Mensal</option></select></label>
+    <label class="field"><span>Data da próxima execução</span><input class="input" type="date" name="next_scheduled_date" value="${esc(nextDate || "")}" ${monthly ? "required" : "disabled"}></label>
+    <p class="muted wide general-recurrence-help">Ao finalizar esta rotina, uma nova será criada para a data informada. A sequência continua mensalmente.</p>`;
+}
 function renderGeneralRoutines() {
   const all = state.generalRoutines || [];
   const search = state.generalSearch.trim().toLocaleLowerCase("pt-BR");
@@ -696,24 +709,26 @@ function renderGeneralRoutines() {
     && (!state.generalStatusFilter || routine.status === state.generalStatusFilter)
     && (!search || [routine.title, routine.description, memberName(routine.responsible_id)].some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(search))))
     .sort((a, b) => (a.status === "Finalizada") - (b.status === "Finalizada") || String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  const pending = new Set(state.queue.filter((item) => item.table?.startsWith("fc_general_") || item.name === "fc_apply_general_routine")
+  const pending = new Set(state.queue.filter((item) => item.table?.startsWith("fc_general_") || ["fc_apply_general_routine", "fc_set_general_recurrence"].includes(item.name))
     .map((item) => item.row?.routine_id || item.row?.id || item.args?.p_routine_id));
+  const pendingFinish = new Set(state.queue.filter((item) => item.name === "fc_apply_general_routine" && item.args?.p_action === "finish")
+    .map((item) => item.args.p_routine_id));
   const responsibleOptions = state.members.filter((person) => person.active)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
     .map((person) => `<option value="${esc(person.id)}" ${person.id === (state.generalCreateDraft.responsible_id || state.member.id) ? "selected" : ""}>${esc(person.name)}</option>`).join("");
   return `<section class="panel general-routines"><div class="panel-head"><div><h2>Rotinas avulsas</h2><p>Atividades fora do fechamento contábil. O tempo e as anotações desta área não entram nos indicadores do balancete mensal.</p></div></div>
     <div class="panel-body">${state.generalError ? `<div class="notice warn">Não foi possível atualizar as rotinas avulsas: ${esc(state.generalError)}</div>` : ""}
       <div class="general-summary"><div><strong>${all.filter((item) => item.status !== "Finalizada").length}</strong><span>Em aberto</span></div><div><strong>${all.filter((item) => item.status === "Em andamento").length}</strong><span>Em andamento</span></div><div><strong>${all.filter((item) => item.status === "Finalizada").length}</strong><span>Finalizadas</span></div></div>
-      <details class="general-create" ${state.generalCreateOpen ? "open" : ""}><summary>+ Cadastrar nova rotina</summary><form id="general-routine-form" class="form-grid"><label class="field"><span>Nome da rotina</span><input class="input" name="title" maxlength="200" minlength="3" required value="${esc(state.generalCreateDraft.title || "")}" placeholder="Ex.: Atualizar cadastro de fornecedores"></label><label class="field"><span>Responsável</span><select class="select" name="responsible_id" required>${responsibleOptions}</select></label><label class="field wide"><span>Descrição / objetivo</span><textarea class="input" name="description" rows="3" maxlength="4000" placeholder="Descreva o que precisa ser feito">${esc(state.generalCreateDraft.description || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Cadastrar rotina</button></form></details>
+      <details class="general-create" ${state.generalCreateOpen ? "open" : ""}><summary>+ Cadastrar nova rotina</summary><form id="general-routine-form" class="form-grid"><label class="field"><span>Nome da rotina</span><input class="input" name="title" maxlength="200" minlength="3" required value="${esc(state.generalCreateDraft.title || "")}" placeholder="Ex.: Atualizar cadastro de fornecedores"></label><label class="field"><span>Responsável</span><select class="select" name="responsible_id" required>${responsibleOptions}</select></label><label class="field wide"><span>Descrição / objetivo</span><textarea class="input" name="description" rows="3" maxlength="4000" placeholder="Descreva o que precisa ser feito">${esc(state.generalCreateDraft.description || "")}</textarea></label>${generalRecurrenceFields(state.generalCreateDraft.recurrence_frequency || "none", state.generalCreateDraft.next_scheduled_date)}<button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Cadastrar rotina</button></form></details>
       <div class="general-filters"><label class="field"><span>Buscar rotina</span><input class="input" id="general-search" value="${esc(state.generalSearch)}" placeholder="Nome, descrição ou responsável"></label><label class="field"><span>Status</span><select class="select" id="general-status-filter"><option value="">Todos</option>${["Não iniciada", "Em andamento", "Pausada", "Finalizada"].map((status) => `<option value="${esc(status)}" ${state.generalStatusFilter === status ? "selected" : ""}>${esc(status)}</option>`).join("")}</select></label><label class="general-mine"><input type="checkbox" id="general-mine" ${state.generalMineOnly ? "checked" : ""}> Somente minhas rotinas</label></div>
       <div class="general-list">${list.map((routine) => { const canControl = routine.responsible_id === state.member.id || state.member.is_admin;
         const entries = [
           ...state.generalEvents.filter((item) => item.routine_id === routine.id).map((item) => ({ type: "event", ...item })),
           ...state.generalNotes.filter((item) => item.routine_id === routine.id).map((item) => ({ type: "note", ...item })),
         ].sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)) || String(a.id).localeCompare(String(b.id)));
-        return `<article class="general-card"><div class="general-card-main"><div><h3>${esc(routine.title)}</h3><p>${esc(routine.description || "Sem descrição.")}</p><small>Responsável: ${esc(memberName(routine.responsible_id, "Usuário removido"))} · Criada em ${brasilia(routine.created_at)}</small></div><div class="general-card-status"><span class="badge ${routine.status === "Finalizada" ? "done" : routine.status === "Em andamento" ? "running" : routine.status === "Pausada" ? "paused" : "not-started"}">${esc(routine.status)}</span><strong class="general-live-time" data-id="${esc(routine.id)}">${duration(generalRoutineSeconds(routine))}</strong><small>Tempo acumulado</small>${routine.first_started_at ? `<small>Início: ${brasilia(routine.first_started_at)}</small>` : ""}${routine.finished_at ? `<small>Fim: ${brasilia(routine.finished_at)}</small>` : ""}${pending.has(routine.id) ? '<small>Aguardando sincronização</small>' : ""}</div></div>
+        return `<article class="general-card"><div class="general-card-main"><div><h3>${esc(routine.title)}</h3><p>${esc(routine.description || "Sem descrição.")}</p><small>Responsável: ${esc(memberName(routine.responsible_id, "Usuário removido"))} · Criada em ${brasilia(routine.created_at)}</small>${routine.scheduled_date ? `<small class="general-schedule">Programada para ${dateBR(routine.scheduled_date)}</small>` : ""}${routine.recurrence_frequency === "monthly" ? `<small class="general-schedule">Recorrência mensal · ${routine.status === "Finalizada" ? "próxima ocorrência criada para" : "próxima execução em"} ${dateBR(routine.next_scheduled_date)}</small>` : ""}${routine.status === "Finalizada" && pendingFinish.has(routine.id) && routine.recurrence_frequency === "monthly" ? '<small>Próxima rotina será criada após sincronização.</small>' : ""}</div><div class="general-card-status"><span class="badge ${routine.status === "Finalizada" ? "done" : routine.status === "Em andamento" ? "running" : routine.status === "Pausada" ? "paused" : "not-started"}">${esc(routine.status)}</span><strong class="general-live-time" data-id="${esc(routine.id)}">${duration(generalRoutineSeconds(routine))}</strong><small>Tempo acumulado</small>${routine.first_started_at ? `<small>Início: ${brasilia(routine.first_started_at)}</small>` : ""}${routine.finished_at ? `<small>Fim: ${brasilia(routine.finished_at)}</small>` : ""}${pending.has(routine.id) ? '<small>Aguardando sincronização</small>' : ""}</div></div>
           <div class="general-card-actions"><button class="btn compact play" data-action="general-activity" data-kind="play" data-id="${esc(routine.id)}" ${!canControl || !["Não iniciada", "Pausada"].includes(routine.status) ? "disabled" : ""}>▶ PLAY</button><button class="btn compact pause" data-action="general-activity" data-kind="pause" data-id="${esc(routine.id)}" ${!canControl || routine.status !== "Em andamento" ? "disabled" : ""}>Ⅱ PAUSE</button><button class="btn compact stop" data-action="general-activity" data-kind="finish" data-id="${esc(routine.id)}" ${!canControl || !["Em andamento", "Pausada"].includes(routine.status) ? "disabled" : ""}>■ FINISH</button><button class="btn compact" data-action="general-details" data-id="${esc(routine.id)}">${state.generalOpenId === routine.id ? "Ocultar anotações" : `Anotações e histórico (${entries.length})`}</button></div>
-          ${state.generalOpenId === routine.id ? `<div class="general-details"><h4>Acompanhamento da rotina</h4><div class="general-timeline">${entries.length ? entries.map((entry) => `<div class="general-entry ${entry.type}"><strong>${entry.type === "note" ? "Anotação" : ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[entry.action]}</strong><span>${entry.type === "note" ? esc(entry.body).replace(/\n/g, "<br>") : entry.elapsed_seconds ? `+ ${duration(entry.elapsed_seconds)} de trabalho` : "Registro de tempo"}</span><small>${esc(memberName(entry.author_id || entry.actor_id, "Usuário removido"))} · ${brasilia(entry.occurred_at)}</small></div>`).join("") : '<p class="muted">Ainda não há apontamentos nesta rotina.</p>'}</div>${routine.status !== "Finalizada" ? `<form data-form="general-note" data-routine-id="${esc(routine.id)}"><label class="field"><span>O que foi feito / observações</span><textarea class="input" name="body" rows="3" maxlength="4000" required placeholder="Registre o andamento, impedimentos ou próximos passos">${esc(state.generalNoteDrafts[routine.id] || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar anotação</button></form>` : '<p class="muted">Rotina finalizada. O histórico permanece disponível para consulta.</p>'}</div>` : ""}</article>`;
+          ${state.generalOpenId === routine.id ? `<div class="general-details"><h4>Acompanhamento da rotina</h4>${canControl && routine.status !== "Finalizada" ? `<form class="form-grid general-recurrence-form" data-form="general-recurrence" data-routine-id="${esc(routine.id)}"><h4 class="wide">Programação da recorrência</h4>${generalRecurrenceFields(state.generalRecurrenceDrafts[routine.id]?.recurrence_frequency ?? routine.recurrence_frequency ?? "none", state.generalRecurrenceDrafts[routine.id]?.next_scheduled_date ?? routine.next_scheduled_date)}<button class="btn" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar recorrência</button></form>` : ""}<div class="general-timeline">${entries.length ? entries.map((entry) => `<div class="general-entry ${entry.type}"><strong>${entry.type === "note" ? "Anotação" : ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[entry.action]}</strong><span>${entry.type === "note" ? esc(entry.body).replace(/\n/g, "<br>") : entry.elapsed_seconds ? `+ ${duration(entry.elapsed_seconds)} de trabalho` : "Registro de tempo"}</span><small>${esc(memberName(entry.author_id || entry.actor_id, "Usuário removido"))} · ${brasilia(entry.occurred_at)}</small></div>`).join("") : '<p class="muted">Ainda não há apontamentos nesta rotina.</p>'}</div>${routine.status !== "Finalizada" ? `<form data-form="general-note" data-routine-id="${esc(routine.id)}"><label class="field"><span>O que foi feito / observações</span><textarea class="input" name="body" rows="3" maxlength="4000" required placeholder="Registre o andamento, impedimentos ou próximos passos">${esc(state.generalNoteDrafts[routine.id] || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar anotação</button></form>` : '<p class="muted">Rotina finalizada. O histórico permanece disponível para consulta.</p>'}</div>` : ""}</article>`;
       }).join("") || '<div class="empty">Nenhuma rotina encontrada. Cadastre uma nova ou ajuste os filtros.</div>'}</div></div></section>`;
 }
 function renderRegistry() {
@@ -860,7 +875,7 @@ function actGeneralRoutine(id, action) {
   if (action === "play" && !["Não iniciada", "Pausada"].includes(routine.status)) return;
   if (action === "pause" && routine.status !== "Em andamento") return toast("Inicie a rotina antes de pausá-la.");
   if (action === "finish" && !["Em andamento", "Pausada"].includes(routine.status)) return toast("Inicie a rotina antes de finalizá-la.");
-  if (action === "finish" && !confirm(`Finalizar a rotina “${routine.title}”? O cronômetro será encerrado e as anotações ficarão disponíveis para consulta.`)) return;
+  if (action === "finish" && !confirm(`Finalizar a rotina “${routine.title}”? O cronômetro será encerrado${routine.recurrence_frequency === "monthly" ? ` e uma nova rotina será criada para ${dateBR(routine.next_scheduled_date)} após a sincronização` : ""}. As anotações ficarão disponíveis para consulta.`)) return;
   const now = new Date().toISOString(), eventId = uid();
   const next = nextGeneralRoutineState(routine, action, now);
   const elapsed = Number(next.total_seconds) - Number(routine.total_seconds || 0);
@@ -988,7 +1003,7 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form", "general-routine-form"].includes(form.id) && form.dataset.form !== "general-note") return;
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form", "general-routine-form"].includes(form.id) && !["general-note", "general-recurrence"].includes(form.dataset.form)) return;
   event.preventDefault();
   try {
     if (form.id === "auth-form") {
@@ -1009,14 +1024,36 @@ document.addEventListener("submit", async (event) => {
       const title = field(form, "title").value.trim();
       const description = field(form, "description").value.trim() || null;
       const responsibleId = field(form, "responsible_id").value;
+      const frequency = field(form, "recurrence_frequency").value;
+      const nextDate = frequency === "monthly" ? field(form, "next_scheduled_date").value : null;
       if (title.length < 3 || title.length > 200 || !state.members.some((item) => item.id === responsibleId && item.active))
         throw new Error("Informe um nome e um responsável ativo para a rotina.");
-      const row = { id: uid(), title, description, responsible_id: responsibleId, created_by: state.member.id };
+      if (frequency === "monthly" && !nextDate) throw new Error("Informe a data da próxima execução mensal.");
+      const row = { id: uid(), title, description, responsible_id: responsibleId, created_by: state.member.id,
+        recurrence_frequency: frequency, next_scheduled_date: nextDate, recurrence_day: nextDate ? Number(nextDate.slice(-2)) : null };
       state.generalRoutines.push({ ...row, created_at: new Date().toISOString(), status: "Não iniciada", total_seconds: 0, started_at: null, first_started_at: null, finished_at: null });
       state.generalOpenId = row.id;
       state.generalCreateDraft = {}; state.generalCreateOpen = false;
       state.generalSearch = ""; state.generalStatusFilter = ""; state.generalMineOnly = false;
       enqueue({ kind: "insert", table: "fc_general_routines", row });
+    }
+    else if (form.dataset.form === "general-recurrence") {
+      if (!state.generalReady) throw new Error("As rotinas avulsas ainda não estão disponíveis neste aparelho.");
+      const routine = state.generalRoutines.find((item) => item.id === form.dataset.routineId);
+      if (!routine || routine.status === "Finalizada") throw new Error("Esta rotina já foi finalizada.");
+      if (routine.responsible_id !== state.member.id && !state.member.is_admin)
+        throw new Error("Somente o responsável ou um administrador pode alterar a recorrência.");
+      const frequency = field(form, "recurrence_frequency").value;
+      const nextDate = frequency === "monthly" ? field(form, "next_scheduled_date").value : null;
+      if (!['none', 'monthly'].includes(frequency) || (frequency === "monthly" && !nextDate))
+        throw new Error("Informe a data da próxima execução mensal.");
+      const anchorDay = nextDate ? (routine.recurrence_frequency === "monthly" && routine.next_scheduled_date === nextDate
+        ? routine.recurrence_day : Number(nextDate.slice(-2))) : null;
+      Object.assign(routine, { recurrence_frequency: frequency, next_scheduled_date: nextDate, recurrence_day: anchorDay });
+      delete state.generalRecurrenceDrafts[routine.id];
+      enqueue({ kind: "rpc", name: "fc_set_general_recurrence", args: {
+        p_routine_id: routine.id, p_frequency: frequency, p_next_scheduled_date: nextDate,
+      } });
     }
     else if (form.dataset.form === "general-note") {
       if (!state.generalReady) throw new Error("As anotações ainda não estão disponíveis neste aparelho.");
@@ -1122,13 +1159,36 @@ document.addEventListener("input", (event) => {
   if (event.target.id === "error-search") { state.errorSearch = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#error-search"); input.focus(); input.setSelectionRange(pos, pos); }
   if (event.target.form?.id === "comment-form") state.commentDrafts[event.target.form.dataset.taskId] = event.target.value;
   if (event.target.form?.id === "general-routine-form") { state.generalCreateDraft[event.target.name] = event.target.value; state.generalCreateOpen = true; }
+  if (event.target.form?.dataset.form === "general-recurrence") {
+    const id = event.target.form.dataset.routineId;
+    state.generalRecurrenceDrafts[id] ||= {};
+    state.generalRecurrenceDrafts[id][event.target.name] = event.target.value;
+  }
   if (event.target.form?.dataset.form === "general-note") state.generalNoteDrafts[event.target.form.dataset.routineId] = event.target.value;
   if (event.target.form?.id === "suggestion-form") state.suggestionDraft = event.target.value;
   if (event.target.matches("[data-suggestion-reason]")) state.suggestionReasonDrafts[event.target.dataset.suggestionReason] = event.target.value;
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
-  if (element.form?.id === "general-routine-form") { state.generalCreateDraft[element.name] = element.value; state.generalCreateOpen = true; return; }
+  if (element.form?.id === "general-routine-form" || element.form?.dataset.form === "general-recurrence") {
+    if (element.form.id === "general-routine-form") { state.generalCreateDraft[element.name] = element.value; state.generalCreateOpen = true; }
+    else {
+      const id = element.form.dataset.routineId;
+      state.generalRecurrenceDrafts[id] ||= {};
+      state.generalRecurrenceDrafts[id][element.name] = element.value;
+    }
+    if (element.name === "recurrence_frequency") {
+      const dateInput = field(element.form, "next_scheduled_date");
+      dateInput.disabled = element.value !== "monthly";
+      dateInput.required = element.value === "monthly";
+      if (dateInput.disabled) {
+        dateInput.value = "";
+        if (element.form.id === "general-routine-form") state.generalCreateDraft.next_scheduled_date = "";
+        else state.generalRecurrenceDrafts[element.form.dataset.routineId].next_scheduled_date = "";
+      }
+    }
+    return;
+  }
   if (element.id === "general-status-filter") { state.generalStatusFilter = element.value; render(); return; }
   if (element.id === "general-mine") { state.generalMineOnly = element.checked; render(); return; }
   if (element.id === "error-status-filter") { state.errorStatusFilter = element.value; render(); return; }
