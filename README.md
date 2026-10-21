@@ -29,6 +29,8 @@ Para a versão `2026.10.20.2`, aplique `supabase/migrations/20261020_monthly_tas
 
 Para a versão `2026.10.20.3`, aplique `supabase/migrations/20261020_copy_from_september.sql` antes de publicar a interface. O botão de cópia também aparece em setembro/2026, com destino a outubro/2026, sem substituir rotinas ou apontamentos já existentes em outubro.
 
+Para a versão `2026.10.21.1`, aplique `supabase/migrations/20261021_task_label_edits.sql` antes de publicar a interface. Administradores podem corrigir nome e grupo na Execução com vigência a partir do mês escolhido, sem alterar meses anteriores, identificador da tarefa ou registros de execução. A edição fica auditada na tela Versões.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.

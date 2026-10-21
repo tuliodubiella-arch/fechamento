@@ -8,14 +8,14 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.20.3";
+const APP_VERSION = "2026.10.21.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
 const initialInvite = new URLSearchParams(location.hash.replace(/^#/, "")).get("type") === "invite";
 const expiredAuthLink = new URLSearchParams(location.hash.replace(/^#/, "")).get("error_code") === "otp_expired";
 const state = {
-  session: null, member: null, members: [], companies: [], tasks: [], owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
+  session: null, member: null, members: [], companies: [], tasks: [], taskLabelEdits: [], taskLabelsReady: false, taskLabelsError: "", owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalRecurrenceDrafts: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
@@ -87,7 +87,7 @@ const recoveryErrorKey = () => `fc_recovery_error_${state.session?.user?.id || "
 const isLegacyTaskWrite = (item) => item.kind === "upsert" && item.table === "fc_tasks";
 function saveCache() {
   if (!state.session) return;
-  const payload = Object.fromEntries(["members", "companies", "tasks", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "closingErrors", "errorFeatureReady", "generalRoutines", "generalEvents", "generalNotes", "generalReady", "commentsMonth"].map((key) => [key, state[key]]));
+  const payload = Object.fromEntries(["members", "companies", "tasks", "taskLabelEdits", "taskLabelsReady", "owners", "targets", "receipts", "receiptDeliveries", "receiptFeatureReady", "states", "holidays", "history", "releaseNotes", "corrections", "taskComments", "suggestions", "closingErrors", "errorFeatureReady", "generalRoutines", "generalEvents", "generalNotes", "generalReady", "commentsMonth"].map((key) => [key, state[key]]));
   localStorage.setItem(cacheKey(), JSON.stringify(payload));
 }
 function loadCache() {
@@ -230,7 +230,7 @@ async function loadData() {
       const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: requestedMonth });
       if (assignmentError) throw assignmentError;
     }
-    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions, closingErrors, generalRoutines, generalEvents, generalNotes] = await Promise.all([
+    const [members, companies, tasks, owners, targets, receipts, activityStates, holidays, history, deliveries, comments, suggestions, closingErrors, generalRoutines, generalEvents, generalNotes, labelEdits] = await Promise.all([
       allRows("fc_members"), allRows("fc_companies"), allRows("fc_tasks"), allRows("fc_month_owners"), allRows("fc_targets"),
       allRows("fc_receipts"), allRows("fc_activity_states"), allRows("fc_holidays"),
       state.historyLoaded ? Promise.resolve(state.history) : allRows("fc_history_tasks"),
@@ -241,10 +241,14 @@ async function loadData() {
       allRows("fc_general_routines").then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_general_routine_events").then((data) => ({ data })).catch((error) => ({ error })),
       allRows("fc_general_routine_notes").then((data) => ({ data })).catch((error) => ({ error })),
+      allRows("fc_task_label_edits").then((data) => ({ data })).catch((error) => ({ error })),
     ]);
     if (requestedMonth !== state.month) return;
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
+    state.taskLabelsReady = !labelEdits.error;
+    state.taskLabelsError = labelEdits.error?.message || "";
+    if (labelEdits.data) state.taskLabelEdits = labelEdits.data;
     state.receiptFeatureReady = !deliveries.error;
     state.receiptDeliveries = deliveries.data || [];
     state.collaborationReady = !comments.error && !suggestions.error;
@@ -326,6 +330,12 @@ function receiptFor(companyId, department) {
 }
 function isHistorical() { return state.month < legacyCutoff; }
 function ownerFor(taskId, competence = state.month) { return state.owners.find((item) => item.task_id === taskId && item.competence === competence); }
+function taskLabelFor(task, competence = state.month) {
+  const edit = (state.taskLabelEdits || []).filter((item) => item.task_id === task.id && item.effective_competence <= competence)
+    .sort((a, b) => b.effective_competence.localeCompare(a.effective_competence)
+      || String(b.changed_at).localeCompare(String(a.changed_at)) || String(b.id).localeCompare(String(a.id)))[0];
+  return { account: edit?.new_account ?? task.account, group_name: edit?.new_group_name ?? task.group_name };
+}
 function taskInMonth(task, competence = state.month) {
   return (task.created_competence || legacyCutoff) <= competence
     && (task.active || Boolean(task.retired_competence))
@@ -339,7 +349,7 @@ function monthlyTasks() {
   if (isHistorical()) return state.history.filter((item) => item.competence === state.month).map((item) => ({ ...item, company_name: item.company, owner_name: item.owner_name, historic: true }));
   return state.tasks.filter((item) => taskInMonth(item)).map((item) => {
     const owner = ownerFor(item.id);
-    return { ...item, responsible_id: owner?.responsible_id || null, responsible_legacy_name: owner?.responsible_legacy_name || null,
+    return { ...item, ...taskLabelFor(item), responsible_id: owner?.responsible_id || null, responsible_legacy_name: owner?.responsible_legacy_name || null,
       company_name: companyName(item.company_id), owner_name: memberName(owner?.responsible_id, owner?.responsible_legacy_name) };
   });
 }
@@ -525,6 +535,7 @@ function renderExecution() {
     <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
     ${state.member?.is_admin && state.month >= "2026-09" ? `<div class="execution-copy-toolbar"><div><strong>Cópia mensal da lista</strong><small>Leva cadastros e responsáveis de ${esc(monthName(state.month))} para ${esc(monthName(copyTarget))}, sem copiar status, horas ou registros. Novas cópias acrescentam tarefas ausentes sem alterar as já existentes no destino.</small></div><button class="btn primary" data-action="copy-month-tasks" ${!monthTasks.length || !state.online || state.queue.length ? "disabled" : ""}>Copiar rotinas para ${esc(monthName(copyTarget))}</button></div>` : ""}
     ${state.month >= "2026-11" && !monthTasks.length ? `<div class="notice warn">A lista de ${esc(monthName(state.month))} ainda não foi copiada. Selecione ${esc(monthName(adjacentCompetence(state.month, -1)))} e use o botão de cópia na tela de Execução.</div>` : ""}
+    ${state.member?.is_admin && !state.taskLabelsReady ? `<div class="notice warn">A edição do nome das rotinas ainda não está disponível: ${esc(state.taskLabelsError || "aguarde a sincronização")}</div>` : ""}
     ${state.executionOwnerWarning ? '<div class="notice warn owner-play-warning" role="alert">Esta tarefa não pode ser iniciada sem um responsável definido. Selecione um responsável na coluna correspondente antes de usar PLAY.</div>' : ""}
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
     <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); const commentCount = state.commentsMonth === state.month ? (state.taskComments || []).filter((item) => item.task_id === task.id).length : 0; return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small>${task.historic ? "" : `<button class="btn compact comment-open" data-action="open-comments" data-id="${esc(task.id)}" title="Abrir comentários e apontamentos desta atividade">Comentários (${commentCount})</button>`}</td><td data-label="Empresa">${esc(task.company_name)}</td>
@@ -532,7 +543,7 @@ function renderExecution() {
       <td data-label="Status">${badge(statusOf(task))}</td><td data-label="Tempo" class="live-time" data-id="${esc(task.id)}">${task.historic ? "—" : duration(currentSeconds(activity))}</td>
       <td data-label="Início · Brasília">${task.historic ? esc(task.start_date_raw || dateBR(task.start_date)) : brasilia(activity?.first_started_at)}</td><td data-label="Fim · Brasília">${task.historic ? esc(task.end_date_raw || dateBR(task.end_date)) : brasilia(activity?.finished_at)}</td>
       <td data-label="Execução">${task.historic ? "—" : `<div class="actions"><button class="btn compact play" data-action="activity" data-id="${esc(task.id)}" data-kind="play" title="Iniciar">▶ PLAY</button><button class="btn compact pause" data-action="activity" data-id="${esc(task.id)}" data-kind="pause" title="Pausar">Ⅱ PAUSE</button><button class="btn compact stop" data-action="activity" data-id="${esc(task.id)}" data-kind="stop" title="Finalizar">■ STOP</button></div>`}</td>
-      <td data-label="Manutenção">${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
+      <td data-label="Manutenção">${task.historic || !state.member?.is_admin ? "—" : `<div class="actions">${state.taskLabelsReady ? `<button class="btn compact" data-action="edit-task-label" data-id="${esc(task.id)}" title="Corrigir nome e grupo a partir deste mês sem perder os apontamentos">Editar rotina</button>` : ""}${activity?.first_started_at ? `<button class="btn compact" data-action="edit-time" data-id="${esc(task.id)}" title="Corrigir o tempo total com motivo e trilha de auditoria">Editar tempo</button>` : ""}${activity && (activity.status !== "Não iniciado" || activity.total_seconds || activity.first_started_at) ? `<button class="btn compact danger" data-action="reset-activity" data-id="${esc(task.id)}" title="Retirar os apontamentos desta rotina neste mês">Limpar marcação</button>` : ""}<button class="btn compact danger" data-action="retire-task" data-id="${esc(task.id)}" title="Retirar esta rotina do mês selecionado e dos próximos, preservando meses anteriores">Excluir tarefa</button></div>`}</td></tr>`; }).join("")}</tbody></table><div class="empty execution-empty" hidden>Nenhuma atividade neste filtro.</div></div>
     <div class="footer-note">${tasks.length} atividade(s). Os horários são apresentados no fuso de Brasília/DF.</div></section>`;
 }
 function renderCommentsPanel() {
@@ -760,18 +771,20 @@ function renderRegistry() {
     <section class="panel"><div class="panel-head"><h2>Empresas</h2></div><div class="panel-body"><p class="notice warn">Um novo cadastro deverá respeitar o nome da empresa conforme o cartão de CNPJ</p><form id="company-form" class="form-grid"><label class="field wide"><span>Nome da empresa</span><input class="input" name="name" required></label><label class="field"><span>Prioridade inicial</span><select class="select" name="category"><option>DEMAIS</option><option>HOLDING</option></select></label><button class="btn primary" type="submit">Incluir empresa</button></form>
     <h3 class="section-title" style="margin-top:22px">Cadastradas</h3><div class="list">${state.companies.filter((item) => item.active).map((item) => `<div class="list-row"><input class="input" data-company-name="${esc(item.id)}" value="${esc(item.name)}" aria-label="Nome da empresa"> <button class="btn compact" data-action="company-name" data-id="${esc(item.id)}">Salvar</button></div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Contas / rotinas</h2></div><div class="panel-body"><form id="task-form" class="form-grid"><label class="field wide"><span>Empresa</span><select class="select" name="company_id" required><option value="">Selecione</option>${companyOptions}</select></label><label class="field"><span>Conta / rotina</span><input class="input" name="account" required></label><label class="field"><span>Grupo</span><input class="input" name="group_name" value="OUTROS"></label><button class="btn primary" type="submit">Incluir rotina sem responsável</button></form>
-    <h3 class="section-title" style="margin-top:22px">${state.tasks.filter((item) => item.active).length} rotinas cadastradas</h3><div class="list">${state.tasks.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(item.account)}</strong><small>${esc(companyName(item.company_id))} · ${esc(memberName(ownerFor(item.id)?.responsible_id, ownerFor(item.id)?.responsible_legacy_name))}</small></div></div>`).join("")}</div></div></section>
+    <h3 class="section-title" style="margin-top:22px">${state.tasks.filter((item) => item.active).length} rotinas cadastradas</h3><div class="list">${state.tasks.filter((item) => item.active).map((item) => `<div class="list-row"><div><strong>${esc(taskLabelFor(item).account)}</strong><small>${esc(companyName(item.company_id))} · ${esc(memberName(ownerFor(item.id)?.responsible_id, ownerFor(item.id)?.responsible_legacy_name))}</small></div></div>`).join("")}</div></div></section>
     <section class="panel"><div class="panel-head"><h2>Feriados adicionais</h2></div><div class="panel-body"><p class="muted">Use para feriados estaduais, municipais ou dias sem expediente confirmados pelo setor.</p><form id="holiday-form" class="form-grid"><label class="field"><span>Data</span><input class="input" type="date" name="date" required></label><label class="field"><span>Descrição</span><input class="input" name="name" required></label><button class="btn primary" type="submit">Adicionar feriado</button></form><div class="list" style="margin-top:20px">${state.holidays.sort((a, b) => a.date.localeCompare(b.date)).map((item) => `<div class="list-row"><span>${dateBR(item.date)} · ${esc(item.name)}</span></div>`).join("")}</div></div></section></div>`;
 }
 function renderVersions() {
   if (!state.member?.is_admin) return '<div class="notice warn">Esta área é exclusiva do administrador.</div>';
   const notes = [...state.releaseNotes].sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)));
   const corrections = [...state.corrections].sort((a, b) => String(b.corrected_at).localeCompare(String(a.corrected_at)));
+  const labelEdits = [...state.taskLabelEdits].sort((a, b) => String(b.changed_at).localeCompare(String(a.changed_at)));
   return `<div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Versões e atualizações</h2><p>Versão instalada: ${esc(APP_VERSION)}</p></div></div><div class="panel-body">
     ${state.adminDataError ? `<div class="notice warn">${esc(state.adminDataError)}</div>` : ""}
     <form id="release-form" class="form-grid"><label class="field"><span>Versão</span><input class="input" name="version" value="${esc(APP_VERSION)}" maxlength="40" required></label><label class="field"><span>Título da atualização</span><input class="input" name="title" maxlength="160" required></label><label class="field wide"><span>Descrição das mudanças / manutenção</span><textarea class="input" name="details" rows="5" maxlength="4000" required></textarea></label><button class="btn primary" type="submit" ${state.adminDataError ? "disabled" : ""}>Registrar atualização</button></form>
     <h3 class="section-title" style="margin-top:24px">Histórico de versões</h3><div class="update-list">${notes.length ? notes.map((note) => `<article class="update-entry"><div class="update-heading"><strong>${esc(note.version)} · ${esc(note.title)}</strong><small>${brasilia(note.published_at)}</small></div><p>${esc(note.details).replace(/\n/g, "<br>")}</p><small>Registrado por ${esc(memberName(note.created_by, "Sistema"))}</small></article>`).join("") : '<div class="empty">Nenhuma atualização registrada.</div>'}</div></div></section>
-    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit", queueSkip = item.correction_type === "queue_skip"; return `<article class="update-entry"><div class="update-heading"><strong>${queueSkip ? "PAUSE local repetido · " : timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task?.account || item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${queueSkip ? `Apontamento não enviado de ${brasilia(item.previous_state?.pending_occurred_at)}; nenhum tempo gravado foi alterado` : timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section></div>`;
+    <section class="panel"><div class="panel-head"><div><h2>Correções de apontamentos</h2><p>Histórico de tempos editados e registros retirados da execução.</p></div></div><div class="panel-body update-list">${corrections.length ? corrections.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); const timeEdit = item.correction_type === "time_edit", queueSkip = item.correction_type === "queue_skip"; return `<article class="update-entry"><div class="update-heading"><strong>${queueSkip ? "PAUSE local repetido · " : timeEdit ? "Tempo editado · " : "Registros retirados · "}${esc(task ? taskLabelFor(task, item.competence).account : item.task_id)}</strong><small>${brasilia(item.corrected_at)}</small></div><p>${esc(companyName(task?.company_id))} · ${esc(monthName(item.competence))}</p><p>Motivo: ${esc(item.reason)}</p><small>${queueSkip ? `Apontamento não enviado de ${brasilia(item.previous_state?.pending_occurred_at)}; nenhum tempo gravado foi alterado` : timeEdit ? `Tempo: ${duration(item.old_total_seconds ?? item.previous_state?.total_seconds)} → ${duration(item.new_total_seconds)}` : `${item.events_affected} registro(s) retirado(s)`} · por ${esc(memberName(item.corrected_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma correção administrativa registrada.</div>'}</div></section>
+    <section class="panel"><div class="panel-head"><div><h2>Alterações de rotinas</h2><p>Nomes e grupos corrigidos por competência, sem apagar os apontamentos.</p></div></div><div class="panel-body update-list">${labelEdits.length ? labelEdits.map((item) => { const task = state.tasks.find((row) => row.id === item.task_id); return `<article class="update-entry"><div class="update-heading"><strong>${esc(companyName(task?.company_id))} · ${esc(monthName(item.effective_competence))}</strong><small>${brasilia(item.changed_at)}</small></div><p>${esc(item.old_account)} → ${esc(item.new_account)}</p><small>Grupo: ${esc(item.old_group_name || "OUTROS")} → ${esc(item.new_group_name)} · por ${esc(memberName(item.changed_by))}</small></article>`; }).join("") : '<div class="empty">Nenhuma rotina editada.</div>'}</div></section></div>`;
 }
 function pendingDescription(item) {
   const taskId = item.args?.p_task_id || item.row?.task_id || item.where?.task_id || (item.table === "fc_tasks" ? item.row?.id : null);
@@ -943,6 +956,31 @@ async function editActivityTime(taskId, button) {
     await loadData();
     toast("Tempo corrigido. A alteração está registrada em Versões.");
   } catch (error) { button.disabled = false; button.textContent = "Editar tempo"; toast(`Tempo não alterado: ${error.message || error}`); }
+}
+async function editTaskLabel(taskId, button) {
+  if (!state.member?.is_admin || isHistorical() || !state.taskLabelsReady) return;
+  if (!state.online || state.queue.length) return toast("Conecte-se e sincronize os registros pendentes antes de editar uma rotina.");
+  const task = monthlyTasks().find((item) => item.id === taskId && !item.historic);
+  if (!task) return toast("Rotina não encontrada neste mês.");
+  const month = state.month;
+  const account = prompt(`Editar rotina · ${companyName(task.company_id)} · ${monthName(month)}\n\nInforme o novo nome da conta / rotina:`, task.account);
+  if (account === null) return;
+  const group = prompt(`Grupo sintético de “${account.trim()}”:`, executionGroup(task));
+  if (group === null) return;
+  const newAccount = account.trim(), newGroup = group.trim();
+  if (!newAccount || newAccount.length > 250 || !newGroup || newGroup.length > 120)
+    return toast("Informe um nome de até 250 caracteres e um grupo de até 120 caracteres.");
+  if (newAccount === task.account && newGroup === executionGroup(task)) return toast("O nome e o grupo não foram alterados.");
+  if (!confirm(`Salvar a alteração de “${task.account}” para “${newAccount}” a partir de ${monthName(month)}?\n\nMeses anteriores manterão o nome antigo. A tarefa, responsável e todos os PLAY/PAUSE/STOP e tempos permanecerão os mesmos. A edição ficará registrada em Versões.`)) return;
+  button.disabled = true; button.textContent = "Salvando…";
+  try {
+    const { error } = await client.rpc("fc_edit_task_label", {
+      p_task_id: taskId, p_competence: month, p_account: newAccount, p_group_name: newGroup,
+    });
+    if (error) throw error;
+    await loadData();
+    toast("Rotina atualizada neste mês e nos seguintes. O histórico anterior foi preservado.");
+  } catch (error) { button.disabled = false; button.textContent = "Editar rotina"; toast(`Rotina não alterada: ${error.message || error}`); }
 }
 async function retireTask(taskId, button) {
   if (!state.member?.is_admin || isHistorical()) return;
@@ -1318,6 +1356,7 @@ document.addEventListener("click", async (event) => {
   else if (action === "activity") act(id, button.dataset.kind);
   else if (action === "my-execution") { state.tab = "Execução"; state.ownerFilter = state.member.id; state.companyFilter = ""; state.query = ""; state.statusFilters = []; state.groupFilters = []; render(); }
   else if (action === "edit-time") await editActivityTime(id, button);
+  else if (action === "edit-task-label") await editTaskLabel(id, button);
   else if (action === "reset-activity") await resetActivity(id, button);
   else if (action === "retire-task") await retireTask(id, button);
   else if (action === "choose-month") { state.month = button.dataset.month; state.groupFilters = []; state.tab = "Execução"; render(); }

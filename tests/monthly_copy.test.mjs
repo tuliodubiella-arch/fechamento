@@ -58,7 +58,7 @@ test("cópia é administrativa, não transfere execução e não atualiza linhas
 });
 
 test("botão aparece ao administrador e orienta mês futuro ainda sem lista", () => {
-  const state = { month: "2026-10", member: { is_admin: true }, online: true, queue: [],
+  const state = { month: "2026-10", member: { is_admin: true }, taskLabelsReady: true, online: true, queue: [],
     query: "", companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [],
     companies: [], members: [], states: [], taskComments: [], commentsMonth: "", executionOwnerWarning: "" };
   const task = { id: "t1", account: "BANCOS", group_name: "FINANCEIRO", company_name: "Empresa A",
@@ -69,10 +69,12 @@ test("botão aparece ao administrador e orienta mês futuro ainda sem lista", ()
     duration: () => "00:00:00", brasilia: () => "—", dateBR: () => "—", badge: () => "—", esc: String });
   vm.runInContext(app.slice(app.indexOf("function renderExecution()"), app.indexOf("function renderGoals()")), context);
   assert.match(vm.runInContext("renderExecution()", context), /Copiar rotinas para 2026-11/);
+  assert.match(vm.runInContext("renderExecution()", context), /data-action="edit-task-label"/);
   state.month = "2026-09";
   assert.match(vm.runInContext("renderExecution()", context), /Copiar rotinas para 2026-10/);
   state.member.is_admin = false;
   assert.doesNotMatch(vm.runInContext("renderExecution()", context), /data-action="copy-month-tasks"/);
+  assert.doesNotMatch(vm.runInContext("renderExecution()", context), /data-action="edit-task-label"/);
   state.month = "2026-11";
   context.monthlyTasks = () => [];
   assert.match(vm.runInContext("renderExecution()", context), /ainda não foi copiada/);
