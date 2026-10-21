@@ -27,6 +27,8 @@ Para a versão `2026.10.13.1`, aplique `supabase/migrations/20261013_comments_su
 
 Para a versão `2026.10.20.2`, aplique `supabase/migrations/20261020_monthly_task_copy.sql`, `supabase/migrations/20261020_monthly_copy_insert_policy.sql`, `supabase/migrations/20261020_monthly_copy_policy_scope.sql` e `supabase/migrations/20261020_monthly_copy_concurrency.sql`, nesta ordem, antes de publicar a interface. As migrações substituem a lista virtual de novembro/2026 em diante por uma cópia explícita do mês anterior, acessível somente a administradores, e impedem que uma atribuição direta recrie a pré-lista. Elas não apagam eventos, estados, tempos ou comentários dos fechamentos anteriores.
 
+Para a versão `2026.10.20.3`, aplique `supabase/migrations/20261020_copy_from_september.sql` antes de publicar a interface. O botão de cópia também aparece em setembro/2026, com destino a outubro/2026, sem substituir rotinas ou apontamentos já existentes em outubro.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.

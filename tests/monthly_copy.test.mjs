@@ -7,6 +7,7 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const sql = readFileSync(new URL("../supabase/migrations/20261020_monthly_task_copy.sql", import.meta.url), "utf8");
 const policy = readFileSync(new URL("../supabase/migrations/20261020_monthly_copy_policy_scope.sql", import.meta.url), "utf8");
 const concurrency = readFileSync(new URL("../supabase/migrations/20261020_monthly_copy_concurrency.sql", import.meta.url), "utf8");
+const september = readFileSync(new URL("../supabase/migrations/20261020_copy_from_september.sql", import.meta.url), "utf8");
 
 test("novembro em diante não herda lista virtual; cópia, cadastro novo e tarefa iniciada aparecem", () => {
   const state = { month: "2026-11", owners: [], states: [] };
@@ -51,6 +52,9 @@ test("cópia é administrativa, não transfere execução e não atualiza linhas
   assert.match(policy, /s\.competence = fc_month_owners\.competence/);
   assert.match(policy, /e\.competence = fc_month_owners\.competence/);
   assert.match(concurrency, /order by g\.company_id for update/i);
+  assert.match(september, /p_source_competence < '2026-09'/);
+  assert.match(september, /order by g\.company_id for update/i);
+  assert.match(september, /on conflict \(task_id, competence\) do nothing/i);
 });
 
 test("botão aparece ao administrador e orienta mês futuro ainda sem lista", () => {
@@ -59,12 +63,14 @@ test("botão aparece ao administrador e orienta mês futuro ainda sem lista", ()
     companies: [], members: [], states: [], taskComments: [], commentsMonth: "", executionOwnerWarning: "" };
   const task = { id: "t1", account: "BANCOS", group_name: "FINANCEIRO", company_name: "Empresa A",
     owner_name: "Ana", company_id: "a", responsible_id: "m" };
-  const context = vm.createContext({ state, monthlyTasks: () => [task], adjacentCompetence: (month) => month === "2026-10" ? "2026-11" : "2026-12",
+  const context = vm.createContext({ state, monthlyTasks: () => [task], adjacentCompetence: (month) => month === "2026-09" ? "2026-10" : month === "2026-10" ? "2026-11" : "2026-12",
     monthName: (month) => month, executionStatuses: [], executionGroup: (item) => item.group_name,
     statusOf: () => "Não iniciado", taskState: () => null, currentSeconds: () => 0,
     duration: () => "00:00:00", brasilia: () => "—", dateBR: () => "—", badge: () => "—", esc: String });
   vm.runInContext(app.slice(app.indexOf("function renderExecution()"), app.indexOf("function renderGoals()")), context);
   assert.match(vm.runInContext("renderExecution()", context), /Copiar rotinas para 2026-11/);
+  state.month = "2026-09";
+  assert.match(vm.runInContext("renderExecution()", context), /Copiar rotinas para 2026-10/);
   state.member.is_admin = false;
   assert.doesNotMatch(vm.runInContext("renderExecution()", context), /data-action="copy-month-tasks"/);
   state.month = "2026-11";
