@@ -1,0 +1,32 @@
+begin;
+do $$
+declare administrator uuid; member_id uuid; rid uuid; pid uuid; r public.fs_items; snapshot jsonb; payload jsonb; failed boolean;
+begin
+ select id into administrator from public.fs_members where role='admin' and active limit 1;
+ select id into member_id from public.fs_members where role='member' and active limit 1;
+ if administrator is null or member_id is null then raise exception 'Contas de teste não encontradas.';end if;
+ if has_function_privilege('anon','public.fs_edit_routine(uuid,jsonb)','EXECUTE') then raise exception 'Função disponível sem login.';end if;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ payload:=jsonb_build_object('title','Integração mês 10 — 01 a 13/08','type','routine','owner',administrator,'start','2026-08-01','end','2026-08-13','frequency','Mensal','priority','Média','description','Rotina de teste transacional');
+ rid:=(public.fs_create_item(payload)->>'id')::uuid;
+ perform public.fs_apply_item(rid,'{"action":"activity","version":1,"title":"Atividade preservada"}');
+ perform public.fs_apply_item(rid,'{"action":"comment","version":2,"text":"Comentário preservado"}');
+ perform public.fs_apply_item(rid,'{"action":"execution","version":3,"text":"Execução preservada"}');
+ perform public.fs_apply_item(rid,jsonb_build_object('action','delegate','version',4,'title','Ação preservada','assignee',member_id,'due','2026-10-13'));
+ select * into r from public.fs_items where id=rid;snapshot:=r.data;
+ perform set_config('request.jwt.claim.sub',member_id::text,true);
+ perform public.fs_edit_routine(rid,payload||jsonb_build_object('action','routine-edit','version',r.version,'title','Integração mês 10 — 01 a 13/10','start','2026-10-01','end','2026-10-13','status','Concluída','activities','[]'::jsonb,'comments','[]'::jsonb,'executions','[]'::jsonb,'delegations','[]'::jsonb));
+ select * into r from public.fs_items where id=rid;
+ if r.data->>'title'<>'Integração mês 10 — 01 a 13/10' or r.data->>'end'<>'2026-10-13' or r.version<>6 then raise exception 'Edição não persistiu.';end if;
+ if r.data-'title'-'start'-'end'-'updatedAt'<>snapshot-'title'-'start'-'end'-'updatedAt' then raise exception 'Edição perdeu histórico ou alterou campos protegidos.';end if;
+ failed:=false;begin perform public.fs_edit_routine(rid,payload||jsonb_build_object('action','routine-edit','version',5));exception when others then failed:=true;end;if not failed then raise exception 'Conflito ignorado.';end if;
+ failed:=false;begin perform public.fs_edit_routine(rid,payload||jsonb_build_object('action','routine-edit','version',6,'end','2026-07-01'));exception when others then failed:=true;end;if not failed then raise exception 'Período inválido aceito.';end if;
+ pid:=(public.fs_create_item(payload||'{"type":"project"}')->>'id')::uuid;
+ failed:=false;begin perform public.fs_edit_routine(pid,payload||jsonb_build_object('action','routine-edit','version',1));exception when others then failed:=true;end;if not failed then raise exception 'Projeto editado pela operação de rotina.';end if;
+ perform set_config('request.jwt.claim.sub','',true);
+ failed:=false;begin perform public.fs_edit_routine(rid,payload||jsonb_build_object('action','routine-edit','version',6));exception when others then if sqlerrm<>'Acesso negado.' then raise;end if;failed:=true;end;if not failed then raise exception 'Sem login editou rotina.';end if;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ perform public.fs_delete_item(rid,6);
+ failed:=false;begin perform public.fs_edit_routine(rid,payload||jsonb_build_object('action','routine-edit','version',7));exception when others then failed:=true;end;if not failed then raise exception 'Rotina excluída editada.';end if;
+end;$$;
+rollback;

@@ -27,6 +27,12 @@ test('login, equipe, colaboração, conflitos e persistência',async()=>{
  item=(await request('state','GET',null,member.cookie)).body.items[0];assert.equal(item.activities[0].done,true);
  for(const action of ['comment','execution']){assert.equal((await request('items/'+id,'PUT',{version:item.version,action,text:'Conferência realizada'},member.cookie)).status,200);item=(await request('state','GET',null,member.cookie)).body.items[0];}
  assert.equal(item.comments[0].author,'Equipe Teste');assert.equal(item.executions.length,1);
+ const beforeEdit=structuredClone(item);
+ assert.equal((await request('items/'+id,'PUT',{...item,action:'routine-edit',title:'Integração mês 10 — 01 a 13/10',start:'2026-10-01',end:'2026-10-13',status:'Concluída',activities:[],comments:[],executions:[]},member.cookie)).status,200);
+ item=(await request('state','GET',null,member.cookie)).body.items[0];assert.equal(item.id,id);assert.equal(item.title,'Integração mês 10 — 01 a 13/10');assert.equal(item.end,'2026-10-13');
+ for(const key of ['activities','comments','executions','status','createdAt'])assert.deepEqual(item[key],beforeEdit[key],key+' preservado');
+ assert.equal((await request('items/'+id,'PUT',{...beforeEdit,action:'routine-edit'},member.cookie)).status,409);
+ assert.equal((await request('items/'+id,'PUT',{...item,action:'routine-edit',end:'2026-09-01'},member.cookie)).status,400);
  const activityId=item.activities[0].id;
  assert.equal((await request('items/'+id,'PUT',{version:item.version,action:'delete-activity',id:activityId},member.cookie)).status,403);
  assert.equal((await request('items/'+id,'PUT',{version:item.version-1,action:'delete-activity',id:activityId},admin.cookie)).status,409);
@@ -40,6 +46,7 @@ test('login, equipe, colaboração, conflitos e persistência',async()=>{
  const login=await request('login','POST',{email:'admin@example.test',password:'Teste-local-123'});assert.equal((await request('state','GET',null,login.cookie)).body.items[0].executions.length,1);
  for(const type of ['routine','project']){
  const record=(await request('items','POST',{type,title:'Excluir '+type,owner:st.user.id,start:'2026-10-13',end:'2026-10-20'},login.cookie)).body.id;
+ if(type==='project')assert.equal((await request('items/'+record,'PUT',{action:'routine-edit',version:1},login.cookie)).status,400);
  const memberLogin=await request('login','POST',{email:'equipe@example.test',password:'Equipe-local-123'});
  assert.equal((await request('items/'+record,'PUT',{action:'delete-item',version:1},memberLogin.cookie)).status,403);
  assert.equal((await request('items/'+record,'PUT',{action:'delete-item',version:0},login.cookie)).status,409);

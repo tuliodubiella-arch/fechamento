@@ -78,8 +78,8 @@ const server=http.createServer(async(req,res)=>{
  if(user.role!=='admin')return send(403,{error:'Somente o administrador pode excluir rotinas e projetos.'});item.deletedAt=new Date().toISOString();item.deletedBy=user.id;event(user,item.type==='project'?'Excluiu o projeto':'Excluiu a rotina',item);
  }
  else if(action==='record-stage'||action==='record-settings'){event(user,setGroupRecord(db,item,b),item);}
- else if(action==='record-edit'){
- if(!item.groupId||!text(b.title,150)||String(b.title).length>150||String(b.description||'').length>2000||!db.users.some(u=>u.id===b.owner)||!dateValid(b.start)||!dateValid(b.end)||b.end<b.start||!['Baixa','Média','Alta'].includes(b.priority)||!['Diária','Semanal','Mensal','Única'].includes(b.frequency))return send(400,{error:'Revise os campos do registro.'});
+ else if(action==='record-edit'||action==='routine-edit'){
+ if((action==='record-edit'?!item.groupId:item.type!=='routine'||!!item.groupId)||!text(b.title,150)||String(b.title).length>150||String(b.description||'').length>2000||!db.users.some(u=>u.id===b.owner)||!dateValid(b.start)||!dateValid(b.end)||b.end<b.start||!['Baixa','Média','Alta'].includes(b.priority)||!['Diária','Semanal','Mensal','Única'].includes(b.frequency))return send(400,{error:'Revise os campos do registro.'});
  Object.assign(item,{title:text(b.title,150),description:text(b.description),owner:b.owner,start:b.start,end:b.end,priority:b.priority,frequency:b.frequency});event(user,'Editou dados do registro',item);
  }
  else if(action==='edit-activity'){

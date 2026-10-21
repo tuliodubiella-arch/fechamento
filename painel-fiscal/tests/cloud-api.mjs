@@ -25,6 +25,7 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  await api('groups','POST',{title:'Grupo',owner:'member',stages:[]});assert.ok(calls.some(c=>c.url.endsWith('fs_create_group')));
  await api('groups/group-id','PUT',{action:'update-group',version:1});assert.ok(calls.some(c=>c.url.endsWith('fs_update_group')&&JSON.parse(c.body).p_id==='group-id'));
  for(const action of ['record-edit','edit-activity','reorder-activities'])await api('items/item-id','PUT',{action,version:8});
+ await api('items/routine-id','PUT',{action:'routine-edit',version:3});assert.ok(calls.some(c=>c.url.endsWith('fs_edit_routine')&&JSON.parse(c.body).p_id==='routine-id'));
  assert.deepEqual(calls.filter(c=>c.url.endsWith('fs_edit_group_item')).map(c=>JSON.parse(c.body).p_payload.action),['record-edit','edit-activity','reorder-activities']);
  await api('items','POST',{groupId:'group-id',title:'Registro'});assert.ok(calls.some(c=>c.url.endsWith('fs_create_group_record')));
  await api('items/item-id','PUT',{action:'record-stage',stageId:'stage-id',version:7});const moved=calls.find(c=>c.url.endsWith('fs_update_record'));assert.deepEqual(JSON.parse(moved.body),{p_id:'item-id',p_payload:{action:'record-stage',stageId:'stage-id',version:7}});
