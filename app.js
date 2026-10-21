@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.20.1";
+const APP_VERSION = "2026.10.20.2";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -39,6 +39,11 @@ function brasilia(iso) {
 }
 function dateBR(iso) { return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—"; }
 function monthName(month) { return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${month}-01T00:00:00Z`)); }
+function adjacentCompetence(month, offset) {
+  const [year, number] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, number - 1 + offset, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 function duration(seconds) {
   const n = Math.max(0, Math.floor(seconds || 0));
   return [Math.floor(n / 3600), Math.floor(n % 3600 / 60), n % 60].map((part) => String(part).padStart(2, "0")).join(":");
@@ -221,7 +226,7 @@ async function loadData() {
   if (!state.session || !state.online) { render(); return; }
   const requestedMonth = state.month;
   try {
-    if (!isHistorical()) {
+    if (!isHistorical() && requestedMonth < "2026-11") {
       const { error: assignmentError } = await client.rpc("fc_ensure_month_owners", { p_competence: requestedMonth });
       if (assignmentError) throw assignmentError;
     }
@@ -305,7 +310,8 @@ async function loadData() {
 }
 function monthOptions() {
   const list = [];
-  for (let year = 2026; year <= Math.max(2028, new Date().getFullYear() + 2); year++) for (let month = 1; month <= 12; month++) list.push(`${year}-${String(month).padStart(2, "0")}`);
+  const latestCopiedYear = state.owners.reduce((latest, item) => Math.max(latest, Number(item.competence?.slice(0, 4) || 0)), 0);
+  for (let year = 2026; year <= Math.max(2028, new Date().getFullYear() + 2, latestCopiedYear); year++) for (let month = 1; month <= 12; month++) list.push(`${year}-${String(month).padStart(2, "0")}`);
   return list.map((month) => `<option value="${month}" ${month === state.month ? "selected" : ""}>${esc(monthName(month))}</option>`).join("");
 }
 function memberName(id, legacy) { return state.members.find((item) => item.id === id)?.name || legacy || "A definir"; }
@@ -323,7 +329,11 @@ function ownerFor(taskId, competence = state.month) { return state.owners.find((
 function taskInMonth(task, competence = state.month) {
   return (task.created_competence || legacyCutoff) <= competence
     && (task.active || Boolean(task.retired_competence))
-    && (!task.retired_competence || competence < task.retired_competence);
+    && (!task.retired_competence || competence < task.retired_competence)
+    && (competence < "2026-11" || task.created_competence === competence
+      || Boolean(ownerFor(task.id, competence))
+      || state.states.some((item) => item.task_id === task.id && item.competence === competence
+        && (item.status !== "Não iniciado" || item.total_seconds > 0 || item.first_started_at || item.finished_at)));
 }
 function monthlyTasks() {
   if (isHistorical()) return state.history.filter((item) => item.competence === state.month).map((item) => ({ ...item, company_name: item.company, owner_name: item.owner_name, historic: true }));
@@ -495,6 +505,7 @@ function renderTeamTimeAnalysis() {
 }
 function renderExecution() {
   const monthTasks = monthlyTasks();
+  const copyTarget = state.member?.is_admin && state.month >= "2026-10" ? adjacentCompetence(state.month, 1) : null;
   const tasks = monthTasks.filter((item) => {
     const text = `${item.account} ${item.group_name || ""} ${item.company_name} ${item.owner_name}`.toLocaleLowerCase("pt-BR");
     return text.includes(state.query.toLocaleLowerCase("pt-BR")) && (!state.companyFilter || item.company_id === state.companyFilter)
@@ -512,6 +523,8 @@ function renderExecution() {
     <select id="owner-filter" class="select"><option value="">Todos os responsáveis</option>${members.map((item) => `<option value="${esc(item.id)}" ${state.ownerFilter === item.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}</select>
     <details id="group-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por grupo sintético">${esc(groupLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Grupos sintéticos">${groups.map((item) => `<label><input type="checkbox" data-group-filter="${esc(item)}" ${state.groupFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-group-filter" ${state.groupFilters.length ? "" : "disabled"}>Mostrar todos os grupos</button></div></details>
     <details id="status-filter" class="multi-filter"><summary class="select" aria-label="Filtrar por status">${esc(statusLabel)}</summary><div class="multi-filter-menu" role="group" aria-label="Status das atividades">${executionStatuses.map((item) => `<label><input type="checkbox" data-status-filter="${esc(item)}" ${state.statusFilters.includes(item) ? "checked" : ""}>${esc(item)}</label>`).join("")}<button type="button" class="btn compact" data-action="clear-status-filter" ${state.statusFilters.length ? "" : "disabled"}>Mostrar todos os status</button></div></details></div>
+    ${state.member?.is_admin && state.month >= "2026-10" ? `<div class="execution-copy-toolbar"><div><strong>Cópia mensal da lista</strong><small>Leva cadastros e responsáveis de ${esc(monthName(state.month))} para ${esc(monthName(copyTarget))}, sem copiar status, horas ou registros. Novas cópias acrescentam tarefas ausentes sem alterar as já existentes no destino.</small></div><button class="btn primary" data-action="copy-month-tasks" ${!monthTasks.length || !state.online || state.queue.length ? "disabled" : ""}>Copiar rotinas para ${esc(monthName(copyTarget))}</button></div>` : ""}
+    ${state.month >= "2026-11" && !monthTasks.length ? `<div class="notice warn">A lista de ${esc(monthName(state.month))} ainda não foi copiada. Selecione ${esc(monthName(adjacentCompetence(state.month, -1)))} e use o botão de cópia na tela de Execução.</div>` : ""}
     ${state.executionOwnerWarning ? '<div class="notice warn owner-play-warning" role="alert">Esta tarefa não pode ser iniciada sem um responsável definido. Selecione um responsável na coluna correspondente antes de usar PLAY.</div>' : ""}
     <div class="table-wrap"><table class="execution-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th><th>Início · Brasília</th><th>Fim · Brasília</th><th>Execução</th><th>Manutenção</th></tr></thead>
     <tbody>${tasks.map((task) => { const activity = task.historic ? null : taskState(task.id); const filterStatus = statusOf(task) === "Concluída" ? "Finalizado" : statusOf(task); const commentCount = state.commentsMonth === state.month ? (state.taskComments || []).filter((item) => item.task_id === task.id).length : 0; return `<tr data-execution-status="${esc(filterStatus)}" data-execution-group="${esc(executionGroup(task))}"><td data-label="Conta / grupo"><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small>${task.historic ? "" : `<button class="btn compact comment-open" data-action="open-comments" data-id="${esc(task.id)}" title="Abrir comentários e apontamentos desta atividade">Comentários (${commentCount})</button>`}</td><td data-label="Empresa">${esc(task.company_name)}</td>
@@ -1235,6 +1248,22 @@ document.addEventListener("change", (event) => {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]"); if (!button) return;
   const { action, id } = button.dataset;
+  if (action === "copy-month-tasks") {
+    if (!state.member?.is_admin || state.month < "2026-10") return;
+    if (!state.online || state.queue.length) return toast("Conecte-se e sincronize os registros pendentes antes de copiar a lista.");
+    const source = state.month, target = adjacentCompetence(source, 1);
+    const sourceTasks = monthlyTasks();
+    if (!sourceTasks.length) return toast("Não há rotinas no mês selecionado para copiar.");
+    const unfinished = sourceTasks.filter((task) => statusOf(task) !== "Finalizado").length;
+    const warning = unfinished ? `\n\nAtenção: ${unfinished} rotina(s) ainda não estão finalizadas no mês de origem. Você poderá repetir a cópia para acrescentar novos cadastros.` : "";
+    if (!confirm(`Copiar a lista de ${monthName(source)} para ${monthName(target)}?\n\nSerão copiados somente cadastros e responsáveis. Os registros de execução não serão copiados, e tarefas já existentes ou iniciadas no destino permanecerão intactas.${warning}`)) return;
+    button.disabled = true;
+    const { data, error } = await client.rpc("fc_copy_month_tasks", { p_source_competence: source });
+    if (error) { button.disabled = false; return toast(`Cópia não realizada: ${error.message}`); }
+    await loadData();
+    toast(`${data?.added ?? 0} rotina(s) acrescentada(s) em ${monthName(target)}. Selecione o mês de destino para conferir.`);
+    return;
+  }
   if (action === "general-activity") { actGeneralRoutine(id, button.dataset.kind); return; }
   if (action === "general-details") { state.generalOpenId = state.generalOpenId === id ? "" : id; render(); return; }
   if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) field(form, "id").value = ""; return; }
