@@ -4,6 +4,7 @@ const orgClient = window.supabase.createClient(ORG_SUPABASE_URL, ORG_SUPABASE_KE
 let orgCurrentUserId = null;
 let orgCurrentMember = null;
 let orgMembers = [];
+let orgUploadedManuals = [];
 
 const accessGate = document.getElementById('accessGate');
 const protectedApp = document.getElementById('protectedApp');
@@ -42,6 +43,7 @@ async function openProtectedOrganogram(session) {
   orgCurrentMember = member;
   document.getElementById('orgSyncTools').hidden = false;
   document.getElementById('membersTab').hidden = false;
+  document.getElementById('orgManualUploadBtn').hidden = false;
   const { data: workspace, error: workspaceError } = await orgClient.from('org_workspace').select('payload').eq('id', 'main').maybeSingle();
   if (workspaceError) {
     showAuthMessage('Não foi possível carregar as rotinas protegidas. Tente novamente.');
@@ -55,6 +57,7 @@ async function openProtectedOrganogram(session) {
     return;
   }
   buildFromState(workspace.payload);
+  try { await loadOrgManuals(); } catch (error) { console.error('Falha ao carregar manuais enviados:', error); orgUploadedManuals = []; }
   document.getElementById('orgMember').textContent = member.name || session.user.email || '';
   accessGate.hidden = true;
   protectedApp.hidden = false;
@@ -171,6 +174,151 @@ document.getElementById('orgSyncApply').addEventListener('click', async () => {
     status.textContent = 'Configuração local aplicada com sucesso.';
   } catch (error) {
     status.textContent = error.message || String(error);
+  }
+});
+
+function getRoutineManualFiles(routine) {
+  const official = Array.isArray(routine?.manualFiles) ? routine.manualFiles : [];
+  const uploaded = orgUploadedManuals.filter(manual => manual.routineId === routine?.rid);
+  return [...official, ...uploaded];
+}
+
+async function loadOrgManuals() {
+  const { data, error } = await orgClient.from('org_manuals')
+    .select('id,routine_id,area,role,item,title,file_name,storage_path,file_size,created_at')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  orgUploadedManuals = (data || []).map(manual => ({
+    id: manual.id,
+    routineId: manual.routine_id,
+    area: manual.area,
+    role: manual.role,
+    item: manual.item || '',
+    title: manual.title,
+    label: 'Abrir ' + manual.file_name,
+    fileName: manual.file_name,
+    storagePath: manual.storage_path,
+    fileSize: manual.file_size,
+    createdAt: manual.created_at,
+    summary: manual.item || 'Documento enviado pelo portal.',
+  }));
+}
+
+async function openUploadedManual(manual, button) {
+  const popup = window.open('about:blank', '_blank');
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Abrindo…';
+  try {
+    const { data, error } = await orgClient.storage.from('org-manuals').createSignedUrl(manual.storagePath, 120);
+    if (error || !data?.signedUrl) throw error || new Error('Link do manual indisponível.');
+    if (popup) { popup.opener = null; popup.location.replace(data.signedUrl); }
+    else window.location.href = data.signedUrl;
+  } catch (error) {
+    if (popup) popup.close();
+    button.textContent = error.message || 'Não foi possível abrir';
+    setTimeout(() => { button.textContent = originalLabel; }, 2500);
+  } finally {
+    button.disabled = false;
+    if (button.textContent === 'Abrindo…') button.textContent = originalLabel;
+  }
+}
+
+const manualDialog = document.getElementById('orgManualDialog');
+const manualForm = document.getElementById('orgManualForm');
+const manualArea = document.getElementById('orgManualArea');
+const manualRoutine = document.getElementById('orgManualRoutine');
+const manualFile = document.getElementById('orgManualFile');
+const manualTitle = document.getElementById('orgManualTitle');
+const manualStatus = document.getElementById('orgManualStatus');
+
+function populateManualRoutines() {
+  const section = secoes.find(item => item.key === manualArea.value);
+  manualRoutine.innerHTML = '';
+  for (const routine of section?.rotinas || []) {
+    const option = document.createElement('option');
+    option.value = routine.rid;
+    option.textContent = routine.nome;
+    manualRoutine.appendChild(option);
+  }
+  if (!manualRoutine.options.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Nenhuma rotina disponível';
+    manualRoutine.appendChild(option);
+  }
+}
+
+function closeManualDialog() {
+  if (manualDialog.open) manualDialog.close();
+  manualStatus.textContent = '';
+}
+
+document.getElementById('orgManualUploadBtn').addEventListener('click', () => {
+  if (!orgCurrentMember?.is_admin) return;
+  manualForm.reset();
+  populateManualRoutines();
+  manualStatus.textContent = '';
+  manualDialog.showModal();
+});
+manualArea.addEventListener('change', populateManualRoutines);
+document.getElementById('orgManualClose').addEventListener('click', closeManualDialog);
+document.getElementById('orgManualCancel').addEventListener('click', closeManualDialog);
+manualDialog.addEventListener('click', event => { if (event.target === manualDialog) closeManualDialog(); });
+manualFile.addEventListener('change', () => {
+  const file = manualFile.files?.[0];
+  if (file && !manualTitle.value.trim()) manualTitle.value = file.name.replace(/\.docx$/i, '');
+});
+
+manualForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!orgCurrentMember?.is_admin || !orgCurrentUserId) return;
+  const file = manualFile.files?.[0];
+  const area = manualArea.value;
+  const routineId = manualRoutine.value;
+  const role = document.getElementById('orgManualRole').value;
+  const item = document.getElementById('orgManualItem').value.trim();
+  const title = manualTitle.value.trim() || file?.name.replace(/\.docx$/i, '') || '';
+  const expectedPrefix = area === 'contabil' ? 'POPCON - ' : 'POPFIS - ';
+  const submit = document.getElementById('orgManualSubmit');
+  if (!file || !routineId) return manualStatus.textContent = 'Selecione a rotina e o arquivo DOCX.';
+  if (!file.name.toUpperCase().startsWith(expectedPrefix)) return manualStatus.textContent = 'O arquivo deve começar com “' + expectedPrefix.trim() + '”.';
+  if (!/\.docx$/i.test(file.name)) return manualStatus.textContent = 'Somente arquivos DOCX são aceitos.';
+  if (file.size < 1 || file.size > 20 * 1024 * 1024) return manualStatus.textContent = 'O arquivo deve ter no máximo 20 MB.';
+  if (!title || title.length > 200) return manualStatus.textContent = 'Informe um título com até 200 caracteres.';
+  if (role === 'adicional' && !item) return manualStatus.textContent = 'Informe o item ou subrotina do material adicional.';
+
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-');
+  const storagePath = area + '/' + routineId + '/' + Date.now() + '-' + crypto.randomUUID() + '-' + safeName;
+  submit.disabled = true;
+  manualStatus.textContent = 'Enviando e vinculando o manual…';
+  try {
+    const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const { error: uploadError } = await orgClient.storage.from('org-manuals').upload(storagePath, file, { contentType, upsert: false });
+    if (uploadError) throw uploadError;
+    const { error: insertError } = await orgClient.from('org_manuals').insert({
+      routine_id: routineId,
+      area,
+      role,
+      item: item || null,
+      title,
+      file_name: file.name,
+      storage_path: storagePath,
+      file_size: file.size,
+      uploaded_by: orgCurrentUserId,
+    });
+    if (insertError) {
+      await orgClient.storage.from('org-manuals').remove([storagePath]);
+      throw insertError;
+    }
+    await loadOrgManuals();
+    renderAll();
+    manualStatus.textContent = 'Manual enviado e vinculado com sucesso.';
+    setTimeout(closeManualDialog, 900);
+  } catch (error) {
+    manualStatus.textContent = error.message || String(error);
+  } finally {
+    submit.disabled = false;
   }
 });
 
