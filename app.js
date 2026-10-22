@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.21.1";
+const APP_VERSION = "2026.10.22.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -38,6 +38,14 @@ function brasilia(iso) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "medium" }).format(new Date(iso));
 }
 function dateBR(iso) { return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—"; }
+function closingDate(goal) {
+  if (goal.official_close_date) return goal.official_close_date;
+  if (!goal.delivery_at) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(goal.delivery_at));
+}
+function closingDateLabel(goal) {
+  return goal.official_close_date ? dateBR(goal.official_close_date) : goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>';
+}
 function monthName(month) { return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${month}-01T00:00:00Z`)); }
 function adjacentCompetence(month, offset) {
   const [year, number] = month.split("-").map(Number);
@@ -394,6 +402,51 @@ function renderGeneralCards() {
     <div class="card"><span>Tempo registrado</span><strong class="live-total">${isHistorical() ? "—" : duration(seconds)}</strong><small>Soma das conciliações</small></div>
     <div class="card"><span>Progresso geral</span><strong>${items.length ? Math.round(100 * completed / items.length) : 0}%</strong><small>${closedCompanies} empresas encerradas · ${received} documentos recebidos</small></div></div>`;
 }
+function businessDaysToClose(competence, closeDate) {
+  if (!closeDate) return null;
+  const start = `${adjacentCompetence(competence, 1)}-01`;
+  if (closeDate < start) return 0;
+  const excludedByYear = new Map();
+  let count = 0;
+  for (let date = new Date(`${start}T00:00:00Z`); date.toISOString().slice(0, 10) <= closeDate; date.setUTCDate(date.getUTCDate() + 1)) {
+    const day = date.toISOString().slice(0, 10);
+    const year = date.getUTCFullYear();
+    if (!excludedByYear.has(year)) excludedByYear.set(year, holidayDates(year));
+    if (![0, 6].includes(date.getUTCDay()) && !excludedByYear.get(year).has(day)) count++;
+  }
+  return count;
+}
+function closingPerformance(year) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(state.tick));
+  const companyCategories = new Map(state.companies.map((company) => [company.id, company.category]));
+  const category = (goal) => companyCategories.get(goal.company_id) || goal.category;
+  const groups = (targets) => {
+    const aggregate = (rows) => {
+      const days = rows.map((goal) => {
+        const closeDate = closingDate(goal);
+        return closeDate && closeDate <= today ? businessDaysToClose(goal.competence, closeDate) : null;
+      }).filter((value) => value !== null);
+      return { total: rows.length, closed: days.length, days: days.reduce((sum, value) => sum + value, 0), late: days.filter((value) => value > 11).length,
+        average: days.length ? days.reduce((sum, value) => sum + value, 0) / days.length : null };
+    };
+    return { holding: aggregate(targets.filter((goal) => category(goal) === "HOLDING")), demais: aggregate(targets.filter((goal) => category(goal) === "DEMAIS")), geral: aggregate(targets) };
+  };
+  const months = [...new Set(state.targets.filter((goal) => goal.competence.startsWith(`${year}-`) && goal.competence <= state.month).map((goal) => goal.competence))].sort();
+  return { months: months.map((month) => ({ month, ...groups(state.targets.filter((goal) => goal.competence === month)) })),
+    total: groups(state.targets.filter((goal) => months.includes(goal.competence))) };
+}
+function renderClosingPerformance() {
+  const year = state.month.slice(0, 4);
+  const report = closingPerformance(year);
+  const target = year === "2026" ? 11 : null;
+  if (!report.months.length) return `<section class="panel closing-performance"><div class="panel-head"><div><h2>Prazo de fechamento · ${esc(year)}</h2><p>Sem encerramentos cadastrados neste ano.</p></div></div></section>`;
+  const scale = Math.max(target || 0, ...report.months.flatMap((row) => [row.holding.average || 0, row.demais.average || 0, row.geral.average || 0]));
+  const maximum = Math.max(12, Math.ceil(scale / 5) * 5);
+  const metric = (item, label, tone) => `<div class="closing-metric"><span>${label}</span><div class="closing-track">${target ? `<i class="closing-target" style="left:${100 * target / maximum}%" aria-hidden="true"></i>` : ""}<b class="closing-fill ${tone}" style="width:${item.average === null ? 0 : Math.min(100, 100 * item.average / maximum)}%"></b></div><strong>${item.average === null ? "—" : item.average.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} d.u.</strong><small>${item.closed}/${item.total}</small></div>`;
+  const status = (item) => target === null ? "Sem meta definida" : item.late ? `${item.late} fora da meta` : item.closed < item.total ? `${item.total - item.closed} pendente(s)` : "Meta cumprida";
+  const row = (label, data, accumulated = false) => `<div class="closing-row ${accumulated ? "accumulated" : ""}"><div class="closing-month"><strong>${esc(label)}</strong><small>${status(data.geral)}</small></div><div class="closing-bars">${metric(data.holding, "Holding", "holding")}${metric(data.demais, "Demais", "demais")}${metric(data.geral, "Total", "overall")}</div></div>`;
+  return `<section class="panel closing-performance"><div class="panel-head"><div><h2>Prazo de fechamento · ${esc(year)}</h2><p>Média de dias úteis até o encerramento por empresa · ${target ? `meta: até ${target} dias úteis para todas as empresas` : "meta ainda não definida para este ano"}</p></div></div><div class="panel-body"><div class="closing-legend"><span><i class="holding"></i>HOLDING</span><span><i class="demais"></i>DEMAIS</span><span><i class="overall"></i>Total</span>${target ? `<span><i class="target"></i>Meta ${target} d.u.</span>` : ""}</div>${report.months.map((item) => row(monthName(item.month).split(" de ")[0], item)).join("")}${row(`Acumulado ${year}`, report.total, true)}<p class="closing-note">Contagem desde o primeiro dia útil do mês seguinte à competência, incluindo o dia do encerramento e excluindo sábados, domingos e feriados nacionais e de Cascavel/PR. Médias consideram apenas empresas encerradas; pendentes aparecem na contagem e não tornam a meta cumprida.</p></div></section>`;
+}
 function renderPanel() {
   const items = monthlyTasks();
   const slowest = isHistorical() ? [] : items.map((item) => ({ ...item, seconds: currentSeconds(taskState(item.id)) })).filter((item) => item.seconds > 0).sort((a, b) => b.seconds - a.seconds).slice(0, 8);
@@ -402,7 +455,7 @@ function renderPanel() {
   const personStats = state.members.filter((item) => item.active).map((person) => { const rows = items.filter((item) => item.responsible_id === person.id); return { name: person.name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).filter((item) => item.total).sort((a, b) => b.seconds - a.seconds || b.done - a.done);
   const groupStats = [...new Set(items.map((item) => item.group_name || "OUTROS"))].map((name) => { const rows = items.filter((item) => (item.group_name || "OUTROS") === name); return { name, total: rows.length, done: rows.filter((item) => ["Finalizado", "Concluída"].includes(statusOf(item))).length, seconds: rows.reduce((sum, item) => sum + currentSeconds(taskState(item.id)), 0) }; }).sort((a, b) => b.seconds - a.seconds);
   const statRows = (rows, mode) => rows.length ? rows.map((item) => `<div class="chart-row"><div class="chart-label"><span>${esc(item.name)}</span><strong>${mode === "time" ? duration(item.seconds) : `${item.done}/${item.total}`}</strong></div><div class="chart-track"><div class="chart-fill ${mode === "time" ? "time" : ""}" style="width:${mode === "time" ? Math.max(item.seconds ? 2 : 0, Math.round(100 * item.seconds / Math.max(1, ...rows.map((row) => row.seconds)))) : Math.round(100 * item.done / item.total)}%"></div></div><small>${mode === "time" ? `${item.done} de ${item.total} concluídas` : `${Math.round(100 * item.done / item.total)}% concluído · ${duration(item.seconds)}`}</small></div>`).join("") : '<div class="empty">Ainda não há dados para este indicador.</div>';
-  return `${renderGeneralCards()}
+  return `${renderGeneralCards()}${renderClosingPerformance()}
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Progresso por empresa</h2><p>Itens finalizados e tempo de trabalho</p></div></div><div class="panel-body chart-list">${statRows(companyStats, "progress")}</div></section>
     <section class="panel"><div class="panel-head"><div><h2>Indicadores por pessoa</h2><p>Responsabilidades e horas registradas</p></div></div><div class="panel-body chart-list">${statRows(personStats, "progress")}</div></section></div>
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Tempo por tipo de tarefa</h2><p>Grupos de contas e rotinas</p></div></div><div class="panel-body chart-list">${statRows(groupStats, "time")}</div></section>
@@ -433,7 +486,7 @@ function renderMyPanel() {
     <div class="grid cards"><div class="card"><span>Minhas atividades</span><strong>${items.length}</strong><small>${done} finalizadas</small></div>
     <div class="card"><span>Em andamento</span><strong>${running}</strong><small>${paused} pausadas</small></div>
     <div class="card"><span>Meu tempo registrado</span><strong>${isHistorical() ? "—" : duration(seconds)}</strong><small>Apontamentos das minhas rotinas</small></div>
-    <div class="card"><span>Meu progresso</span><strong>${items.length ? Math.round(100 * done / items.length) : 0}%</strong><small>${items.length - done} atividades por concluir</small></div></div>
+    <div class="card"><span>Meu progresso</span><strong>${items.length ? Math.round(100 * done / items.length) : 0}%</strong><small>${items.length - done} atividades por concluir</small></div></div>${renderClosingPerformance()}
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Minhas tarefas por empresa</h2><p>Conclusão das rotinas atribuídas a você</p></div></div><div class="panel-body chart-list">${chartRows(companies, "progress")}</div></section>
     <section class="panel"><div class="panel-head"><div><h2>Meu tempo por grupo sintético</h2><p>Horas registradas por tipo de tarefa</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
     <section class="panel"><div class="panel-head"><div><h2>Minhas rotinas</h2><p>Atividades atribuídas a você na competência selecionada</p></div><button class="btn compact" data-action="my-execution" ${items.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
@@ -469,7 +522,7 @@ function renderTulioPanel() {
     || a.company_name.localeCompare(b.company_name, "pt-BR") || a.account.localeCompare(b.account, "pt-BR"));
   const pending = mine.filter((task) => !["Finalizado", "Concluída"].includes(statusOf(task))).length;
   return `<section class="panel"><div class="panel-head"><div><h2>Meu Painel · ${esc(monthName(state.month))}</h2><p>Visão geral do fechamento para ${esc(state.member.name)}; suas rotinas ficam no quadro recolhido abaixo.</p></div></div></section>
-    ${renderGeneralCards()}
+    ${renderGeneralCards()}${renderClosingPerformance()}
     <section class="panel my-company-toolbar"><div class="panel-head"><div><h2>Filtrar os gráficos por empresa</h2><p>Selecione uma ou mais empresas; os quatro indicadores acima continuam gerais.</p></div>${renderDashboardCompanyFilter("my-panel-company-filter", options, selected, "data-my-company-filter")}</div></section>
     <div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Tarefas por empresa</h2><p>Conclusão das rotinas das empresas selecionadas</p></div></div><div class="panel-body chart-list">${chartRows(companies, "progress")}</div></section>
     <section class="panel"><div class="panel-head"><div><h2>Tempo por grupo sintético</h2><p>Horas registradas pela equipe nas empresas selecionadas</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
@@ -587,7 +640,7 @@ function renderGoals() {
     <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr><td data-label="Ordem"><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td data-label="Empresa"><strong>${esc(company.name)}</strong></td>
       <td data-label="Prioridade"><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
       <td data-label="Dia útil"><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""}></td>
-      <td data-label="Previsão"><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td data-label="Data de entrega">${goal.delivery_at ? brasilia(goal.delivery_at) : '<span class="muted">Aguardando última rotina</span>'}</td>
+      <td data-label="Previsão"><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td data-label="Data de entrega">${closingDateLabel(goal)}</td>
       ${departments.map((department) => renderReceiptCell(company, department)).join("")}
       <td data-label="Mover"><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
   return `<section class="panel goals-panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem mensal de fechamento. HOLDING primeiro; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
@@ -608,7 +661,7 @@ function goalExportRows() {
   return orderedGoals().map((company, index) => {
     const goal = company.goal;
     return [index + 1, company.name, goal.category, goal.business_day || "", dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day)),
-      goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.received_at ? `${receiptStatusLabel(receipt.status)} · ${brasilia(receipt.received_at)}` : receiptStatusLabel(receipt?.status); })];
+      goal.official_close_date ? dateBR(goal.official_close_date) : goal.delivery_at ? brasilia(goal.delivery_at) : "Aguardando", ...departments.map((department) => { const receipt = receiptFor(company.id, department); return receipt?.received_at ? `${receiptStatusLabel(receipt.status)} · ${brasilia(receipt.received_at)}` : receiptStatusLabel(receipt?.status); })];
   });
 }
 function crc32(bytes) {

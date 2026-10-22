@@ -12,14 +12,14 @@ function setup(tasks, historical = false) {
   const state = {
     member: { id: "ana", name: "Ana Silva", is_admin: true },
     members: [{ id: "ana", name: "Ana Silva" }, { id: "bia", name: "Bia Souza" }],
-    companies: [...new Map(tasks.filter((task) => task.company_id).map((task) => [task.company_id, { id: task.company_id, name: task.company_name, active: true }])).values()],
+    companies: [...new Map(tasks.filter((task) => task.company_id).map((task) => [task.company_id, { id: task.company_id, name: task.company_name, category: "DEMAIS", active: true }])).values()],
     states: [], receipts: [], myPanelCompanyFilters: [], analysisCompanyFilters: [],
-    month: historical ? "2026-08" : "2026-10",
+    month: historical ? "2026-08" : "2026-10", tick: Date.parse("2026-10-22T12:00:00Z"), targets: [],
   };
   const context = vm.createContext({ state, monthlyTasks: () => tasks, isHistorical: () => historical,
     taskState: (id) => ({ status: id === "mine-done" ? "Finalizado" : "Não iniciado", total_seconds: id === "mine-done" ? 3600 : 0 }),
     currentSeconds: (activity) => activity?.total_seconds || 0, duration: (seconds) => `${seconds}s`,
-    monthName: () => "outubro de 2026", esc: (value) => String(value ?? "") });
+    monthName: () => "outubro de 2026", esc: (value) => String(value ?? ""), renderClosingPerformance: () => "" });
   vm.runInContext(snippets, context);
   return { context, state };
 }

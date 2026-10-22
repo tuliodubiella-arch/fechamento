@@ -54,6 +54,7 @@ create table if not exists public.fc_targets (
   planned_date date,
   legacy_deadline date,
   delivery_at timestamptz,
+  official_close_date date,
   updated_at timestamptz not null default now(),
   primary key(company_id, competence)
 );

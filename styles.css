@@ -206,3 +206,27 @@
 @media(max-width:720px){.general-filters{grid-template-columns:1fr}.general-card-main{grid-template-columns:1fr}.general-card-status{text-align:left}.general-card-actions .btn:last-child{margin-left:0}.general-entry{grid-template-columns:1fr;gap:3px}.general-entry small{text-align:left}.general-summary>div{flex:1;min-width:95px}}
 @media(max-width:720px){.general-details .general-recurrence-form{grid-template-columns:1fr}}
 
+.closing-performance .panel-head p{font-size:14px;line-height:1.4}
+.closing-legend{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:12px;font-size:13px;font-weight:700;color:#475569}
+.closing-legend span{display:inline-flex;align-items:center;gap:6px}
+.closing-legend i{display:inline-block;width:15px;height:10px;border-radius:3px}
+.closing-legend .holding,.closing-fill.holding{background:#ca8a04}
+.closing-legend .demais,.closing-fill.demais{background:#1d4ed8}
+.closing-legend .overall,.closing-fill.overall{background:#15803d}
+.closing-legend .target{width:2px;height:14px;background:#b91c1c;border-radius:0}
+.closing-row{display:grid;grid-template-columns:minmax(125px,170px) minmax(0,1fr);gap:16px;padding:11px 0;border-top:1px solid #edf2f7}
+.closing-row.accumulated{border-top:2px solid #394451;background:#fff9e8;padding:12px 10px;border-radius:8px}
+.closing-month{display:grid;align-content:center;gap:3px}
+.closing-month strong{font-size:16px;color:#273b4e;text-transform:capitalize}
+.closing-month small{font-size:12px;font-weight:700;color:#64748b}
+.closing-bars{display:grid;gap:4px}
+.closing-metric{display:grid;grid-template-columns:65px minmax(0,1fr) 72px 54px;gap:9px;align-items:center;font-size:12px}
+.closing-metric>span{font-weight:700;color:#475569}
+.closing-metric>strong{text-align:right;font-variant-numeric:tabular-nums;color:#243746;font-size:13px}
+.closing-metric>small{text-align:right;font-variant-numeric:tabular-nums;color:#64748b}
+.closing-track{height:9px;position:relative;border-radius:10px;background:#eef2f7}
+.closing-fill{display:block;height:100%;border-radius:10px}
+.closing-target{position:absolute;top:-3px;bottom:-3px;border-left:2px solid #b91c1c;z-index:1}
+.closing-note{font-size:12px;color:#64748b;line-height:1.5;margin:14px 0 0}
+@media(max-width:700px){.closing-row{grid-template-columns:1fr;gap:7px}.closing-month{display:flex;align-items:center;justify-content:space-between}.closing-metric{grid-template-columns:57px minmax(0,1fr) 65px 43px;gap:5px}}
+

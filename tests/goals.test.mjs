@@ -16,7 +16,7 @@ test("metas separam entregas pendentes das completas sem renumerar a ordem mensa
     state: { month: "2026-09" }, departments: ["financeiro", "rh", "estoque", "fiscal", "balancete"],
     orderedGoals: () => companies, companyDeliveriesComplete: (id) => id === "b",
     dateBR: (value) => value || "—", plannedDate: () => "2026-10-01", isHistorical: () => false,
-    esc: (value) => String(value ?? ""), brasilia: (value) => value, renderReceiptCell: () => "<td>Recebimento</td>",
+    esc: (value) => String(value ?? ""), brasilia: (value) => value, closingDateLabel: (goal) => goal.official_close_date || "Aguardando última rotina", renderReceiptCell: () => "<td>Recebimento</td>",
     renderReceiptPanel: () => "", monthName: () => "setembro de 2026",
   });
   vm.runInContext(renderSource, context);
