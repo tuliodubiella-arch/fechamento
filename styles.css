@@ -230,3 +230,40 @@
 .closing-note{font-size:12px;color:#64748b;line-height:1.5;margin:14px 0 0}
 @media(max-width:700px){.closing-row{grid-template-columns:1fr;gap:7px}.closing-month{display:flex;align-items:center;justify-content:space-between}.closing-metric{grid-template-columns:57px minmax(0,1fr) 65px 43px;gap:5px}}
 
+.closing-performance{max-width:940px}
+.closing-performance:has(.closing-monthly[open]){max-width:none}
+.closing-compact{padding-top:14px;padding-bottom:14px}
+.closing-compact .closing-legend{margin-bottom:9px}
+.closing-compact .closing-bars{gap:6px}
+.closing-summary-status{display:block;margin-top:9px;color:#475569;font-weight:700;font-size:13px}
+.closing-monthly{border-top:1px solid #e2e8f0}
+.closing-monthly>summary{cursor:pointer;padding:12px 20px;color:#075985;font-weight:800;list-style:none}
+.closing-monthly>summary::-webkit-details-marker{display:none}
+.closing-monthly>summary::after{content:" ▾"}
+.closing-monthly[open]>summary::after{content:" ▴"}
+.closing-monthly>summary:hover{background:#f8fafc}
+.closing-monthly-content{padding:16px 20px 20px;border-top:1px solid #e2e8f0}
+.closing-monthly-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.closing-monthly-heading h3{margin:0;font-size:18px;color:#273b4e}
+.closing-monthly-heading p{margin:3px 0 0;color:#64748b;font-size:13px}
+.closing-print-brand{display:none}
+@media print{
+  body.print-closing-monthly .shell .panel:not(.closing-performance),body.print-closing-monthly .shell .grid,body.print-closing-monthly .shell .two-col{display:none!important}
+  body.print-closing-monthly .shell .closing-performance{display:block!important;max-width:none!important;margin:0!important;border:0!important;box-shadow:none!important;overflow:visible!important}
+  body.print-closing-monthly .closing-performance>.panel-head,body.print-closing-monthly .closing-compact,body.print-closing-monthly .closing-monthly>summary,body.print-closing-monthly .closing-monthly-heading{display:none!important}
+  body.print-closing-monthly .closing-monthly,body.print-closing-monthly .closing-monthly-content{display:block!important;border:0!important;padding:0!important}
+  body.print-closing-monthly .closing-print-brand{display:flex;align-items:center;gap:14px;border-bottom:3px solid #f9b31c;padding-bottom:10px;margin-bottom:12px;break-after:avoid}
+  body.print-closing-monthly .closing-print-brand img{width:110px;max-height:55px;object-fit:contain}
+  body.print-closing-monthly .closing-print-brand small{font-size:9px;color:#a97000;font-weight:800;letter-spacing:.12em}
+  body.print-closing-monthly .closing-print-brand h1{font-size:18px;margin:4px 0 0;color:#39373a}
+  body.print-closing-monthly .closing-legend{margin-bottom:8px;font-size:10px}
+  body.print-closing-monthly .closing-row{grid-template-columns:95px minmax(0,1fr);gap:8px;padding:5px 0;break-inside:avoid}
+  body.print-closing-monthly .closing-month strong{font-size:11px}
+  body.print-closing-monthly .closing-month small{font-size:9px}
+  body.print-closing-monthly .closing-bars{gap:2px}
+  body.print-closing-monthly .closing-metric{grid-template-columns:50px minmax(0,1fr) 60px 40px;gap:5px;font-size:9px}
+  body.print-closing-monthly .closing-metric>strong{font-size:10px}
+  body.print-closing-monthly .closing-track{height:6px}
+  body.print-closing-monthly .closing-note{font-size:9px;margin-top:8px}
+}
+

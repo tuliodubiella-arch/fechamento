@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.22.1";
+const APP_VERSION = "2026.10.22.2";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -444,8 +444,15 @@ function renderClosingPerformance() {
   const maximum = Math.max(12, Math.ceil(scale / 5) * 5);
   const metric = (item, label, tone) => `<div class="closing-metric"><span>${label}</span><div class="closing-track">${target ? `<i class="closing-target" style="left:${100 * target / maximum}%" aria-hidden="true"></i>` : ""}<b class="closing-fill ${tone}" style="width:${item.average === null ? 0 : Math.min(100, 100 * item.average / maximum)}%"></b></div><strong>${item.average === null ? "—" : item.average.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} d.u.</strong><small>${item.closed}/${item.total}</small></div>`;
   const status = (item) => target === null ? "Sem meta definida" : item.late ? `${item.late} fora da meta` : item.closed < item.total ? `${item.total - item.closed} pendente(s)` : "Meta cumprida";
-  const row = (label, data, accumulated = false) => `<div class="closing-row ${accumulated ? "accumulated" : ""}"><div class="closing-month"><strong>${esc(label)}</strong><small>${status(data.geral)}</small></div><div class="closing-bars">${metric(data.holding, "Holding", "holding")}${metric(data.demais, "Demais", "demais")}${metric(data.geral, "Total", "overall")}</div></div>`;
-  return `<section class="panel closing-performance"><div class="panel-head"><div><h2>Prazo de fechamento · ${esc(year)}</h2><p>Média de dias úteis até o encerramento por empresa · ${target ? `meta: até ${target} dias úteis para todas as empresas` : "meta ainda não definida para este ano"}</p></div></div><div class="panel-body"><div class="closing-legend"><span><i class="holding"></i>HOLDING</span><span><i class="demais"></i>DEMAIS</span><span><i class="overall"></i>Total</span>${target ? `<span><i class="target"></i>Meta ${target} d.u.</span>` : ""}</div>${report.months.map((item) => row(monthName(item.month).split(" de ")[0], item)).join("")}${row(`Acumulado ${year}`, report.total, true)}<p class="closing-note">Contagem desde o primeiro dia útil do mês seguinte à competência, incluindo o dia do encerramento e excluindo sábados, domingos e feriados nacionais e de Cascavel/PR. Médias consideram apenas empresas encerradas; pendentes aparecem na contagem e não tornam a meta cumprida.</p></div></section>`;
+  const row = (label, data) => `<div class="closing-row"><div class="closing-month"><strong>${esc(label)}</strong><small>${status(data.geral)}</small></div><div class="closing-bars">${metric(data.holding, "Holding", "holding")}${metric(data.demais, "Demais", "demais")}${metric(data.geral, "Total", "overall")}</div></div>`;
+  const period = `janeiro a ${monthName(state.month)}`;
+  const legend = `<div class="closing-legend"><span><i class="holding"></i>HOLDING</span><span><i class="demais"></i>DEMAIS</span><span><i class="overall"></i>Total</span>${target ? `<span><i class="target"></i>Meta ${target} d.u.</span>` : ""}</div>`;
+  return `<section class="panel closing-performance"><div class="panel-head"><div><h2>Prazo de fechamento · acumulado</h2><p>${esc(period)} · ${target ? `meta: até ${target} dias úteis para todas as empresas` : "meta ainda não definida para este ano"}</p></div></div>
+    <div class="panel-body closing-compact">${legend}<div class="closing-bars">${metric(report.total.holding, "Holding", "holding")}${metric(report.total.demais, "Demais", "demais")}${metric(report.total.geral, "Total", "overall")}</div><small class="closing-summary-status">${status(report.total.geral)} · ${report.total.geral.closed}/${report.total.geral.total} empresas encerradas</small></div>
+    <details class="closing-monthly"><summary>Ver desempenho mês a mês</summary><div class="closing-monthly-content"><div class="closing-monthly-heading"><div><h3>Resultado mensal · ${esc(period)}</h3><p>Comparativo de dias úteis por grupo de empresas</p></div><button class="btn compact no-print" data-action="print-closing-monthly" type="button">Imprimir / PDF</button></div>
+    <div class="closing-print-brand"><img src="brand/logo-principal.png" alt="Grupo Cavalca"><div><small>GRUPO CAVALCA · CONTABILIDADE</small><h1>Prazo de fechamento · ${esc(period)}</h1></div></div>
+    ${legend}${report.months.map((item) => row(monthName(item.month).split(" de ")[0], item)).join("")}
+    <p class="closing-note">Contagem desde o primeiro dia útil do mês seguinte à competência, incluindo o dia do encerramento e excluindo sábados, domingos e feriados nacionais e de Cascavel/PR. Médias consideram apenas empresas encerradas; pendentes aparecem na contagem e não tornam a meta cumprida.</p></div></details></section>`;
 }
 function renderPanel() {
   const items = monthlyTasks();
@@ -1483,6 +1490,13 @@ document.addEventListener("click", async (event) => {
     const previousOrder = ordered[index].goal.sort_order, nextOrder = other.goal.sort_order;
     saveGoal(id, { sort_order: nextOrder }); saveGoal(other.id, { sort_order: previousOrder });
   } else if (action === "print-goals") {
+    window.print();
+  } else if (action === "print-closing-monthly") {
+    const monthly = button.closest(".closing-monthly");
+    if (!monthly) return;
+    monthly.open = true;
+    document.body.classList.add("print-closing-monthly");
+    window.addEventListener("afterprint", () => document.body.classList.remove("print-closing-monthly"), { once: true });
     window.print();
   } else if (action === "xlsx-goals") {
     exportGoalsXlsx();

@@ -35,6 +35,35 @@ test("gráfico separa categorias, marca pendência e não confunde média com cu
   const html = vm.runInContext("renderClosingPerformance()", context);
   assert.match(html, /1 fora da meta/);
   assert.match(html, /1 pendente\(s\)/);
-  assert.match(html, /Acumulado 2026/);
+  assert.match(html, /Prazo de fechamento · acumulado/);
+  assert.match(html, /janeiro a setembro de 2026/);
+  assert.match(html, /<details class="closing-monthly">/);
+  assert.match(html, /Ver desempenho mês a mês/);
+  assert.match(html, /data-action="print-closing-monthly"/);
+  assert.match(html, /closing-print-brand/);
   assert.match(html, /meta: até 11 dias úteis/);
+});
+
+test("acumulado e detalhe terminam no mês escolhido no filtro", () => {
+  state.month = "2026-08";
+  try {
+    const report = vm.runInContext('closingPerformance("2026")', context);
+    assert.equal(report.months.length, 1);
+    assert.equal(report.total.geral.closed, 2);
+    const html = vm.runInContext("renderClosingPerformance()", context);
+    assert.match(html, /janeiro a agosto de 2026/);
+    assert.doesNotMatch(html, /<strong>setembro<\/strong>/);
+  } finally {
+    state.month = "2026-09";
+  }
+});
+
+test("ambos os painéis usam o mesmo quadro e a impressão mensal não interfere na impressão de Metas", () => {
+  assert.match(source.slice(source.indexOf("function renderPanel()"), source.indexOf("function renderMyPanel()")), /renderClosingPerformance\(\)/);
+  assert.match(source.slice(source.indexOf("function renderMyPanel()"), source.indexOf("function renderTeamTimeAnalysis()")), /renderClosingPerformance\(\)/);
+  assert.match(source, /action === "print-closing-monthly"/);
+  assert.match(source, /action === "print-goals"/);
+  const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(styles, /body\.print-closing-monthly \.shell \.panel:not\(\.closing-performance\)/);
+  assert.match(styles, /\.print-sheet\{display:block!important/);
 });

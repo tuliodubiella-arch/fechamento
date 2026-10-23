@@ -41,6 +41,8 @@ Para a versão `2026.10.21.1`, aplique `supabase/migrations/20261021_task_label_
 
 Na versão `2026.10.22.1`, a migração `supabase/migrations/20261022_official_close_dates.sql` acrescenta a data oficial (sem horário presumido) para encerramentos históricos. O Painel Geral e o Meu Painel comparam as médias de dias úteis de HOLDING, DEMAIS e total com a meta de 11 dias úteis em 2026. Os dados históricos são carregados diretamente no projeto privado e não ficam neste repositório.
 
+Na versão `2026.10.22.2`, esse indicador fica compacto, acumulado de janeiro até o mês selecionado. O detalhamento mensal abre na própria tela e pode ser impresso separadamente em PDF, sem os demais quadros do painel.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
