@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.23.1";
+const APP_VERSION = "2026.10.23.2";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -773,7 +773,7 @@ function renderClosingErrors() {
       <div id="closing-error-save-message" class="notice ${state.errorSaveFailed ? "warn" : ""}" role="status" ${state.errorSaveNotice ? "" : "hidden"}>${esc(state.errorSaveNotice)}</div>
       <div class="error-summary"><div><strong>${all.filter((item) => item.status === "Aberto").length}</strong><span>Aberto(s)</span></div><div><strong>${all.filter((item) => !["Aberto", "Corrigido"].includes(item.status)).length}</strong><span>Em andamento</span></div><div><strong>${all.filter((item) => item.status === "Corrigido").length}</strong><span>Corrigido(s)</span></div></div>
       <details class="error-editor" id="error-editor"><summary>Registrar novo erro ou editar item existente</summary>
-        <form id="closing-error-form" class="form-grid" novalidate><input type="hidden" name="id"><label class="field"><span>Empresa</span><input class="input" name="company_name" list="error-companies" maxlength="200" required></label><label class="field"><span>Usuário / responsável</span><input class="input" name="assigned_user" list="error-people" maxlength="200"></label>
+        <form id="closing-error-form" class="form-grid" novalidate><input type="hidden" name="error_id"><label class="field"><span>Empresa</span><input class="input" name="company_name" list="error-companies" maxlength="200" required></label><label class="field"><span>Usuário / responsável</span><input class="input" name="assigned_user" list="error-people" maxlength="200"></label>
         <label class="field"><span>Quem solicitou</span><input class="input" name="requested_by" maxlength="200"></label><label class="field"><span>Data da solicitação</span><input class="input" name="requested_at" type="date"></label>
         <label class="field"><span>Erro / identificação</span><input class="input" name="error_label" maxlength="500"></label><label class="field"><span>Status</span><select class="select" name="status">${errorStatuses.map((status) => `<option value="${esc(status)}">${esc(status)}</option>`).join("")}</select></label>
         <label class="field wide"><span>Histórico / descrição do erro</span><textarea class="input" name="description" rows="4" maxlength="10000" required></textarea></label>
@@ -848,7 +848,7 @@ function closingErrorNotice(message, failed = false) {
 function updateClosingErrorRequirements(form) {
   const corrected = field(form, "status").value === "Corrigido";
   field(form, "correction_date").required = corrected;
-  const existing = state.closingErrors.find((item) => item.id === field(form, "id").value);
+  const existing = state.closingErrors.find((item) => item.id === field(form, "error_id").value);
   field(form, "system_improvement").required = corrected && !existing?.source_row;
 }
 function renderRegistry() {
@@ -1150,10 +1150,12 @@ async function inviteMember(form) {
 }
 document.addEventListener("submit", async (event) => {
   const form = event.target;
-  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form", "general-routine-form"].includes(form.id) && !["general-note", "general-recurrence"].includes(form.dataset.form)) return;
+  // Um campo name="id" mascara form.id em navegadores; leia o atributo do form diretamente.
+  const formId = form.getAttribute("id");
+  if (!["auth-form", "invite-form", "company-form", "task-form", "holiday-form", "release-form", "comment-form", "suggestion-form", "closing-error-form", "general-routine-form"].includes(formId) && !["general-note", "general-recurrence"].includes(form.dataset.form)) return;
   event.preventDefault();
   try {
-    if (form.id === "auth-form") {
+    if (formId === "auth-form") {
       const password = field(form, "password").value;
       if (state.needsPassword) {
         if (password !== field(form, "confirm").value) throw new Error("As senhas não coincidem.");
@@ -1165,8 +1167,8 @@ document.addEventListener("submit", async (event) => {
         if (error) throw error;
         state.session = data.session; loadCache(); await loadData();
       }
-    } else if (form.id === "invite-form") await inviteMember(form);
-    else if (form.id === "general-routine-form") {
+    } else if (formId === "invite-form") await inviteMember(form);
+    else if (formId === "general-routine-form") {
       if (!state.generalReady) throw new Error("As rotinas avulsas ainda não estão disponíveis neste aparelho.");
       const title = field(form, "title").value.trim();
       const description = field(form, "description").value.trim() || null;
@@ -1213,10 +1215,10 @@ document.addEventListener("submit", async (event) => {
       delete state.generalNoteDrafts[routine.id];
       enqueue({ kind: "insert", table: "fc_general_routine_notes", row });
     }
-    else if (form.id === "closing-error-form") {
+    else if (formId === "closing-error-form") {
       if (!state.errorFeatureReady) throw new Error("O controle de erros ainda não está disponível neste aparelho.");
       updateClosingErrorRequirements(form);
-      const id = field(form, "id").value;
+      const id = field(form, "error_id").value;
       const existing = id ? state.closingErrors.find((item) => item.id === id) : null;
       if (id && !existing) throw new Error("Este erro não está mais disponível para edição.");
       const status = field(form, "status").value;
@@ -1261,7 +1263,7 @@ document.addEventListener("submit", async (event) => {
         enqueue({ kind: "insert", table: "fc_closing_errors", row });
       }
     }
-    else if (form.id === "comment-form") {
+    else if (formId === "comment-form") {
       const taskId = form.dataset.taskId, task = monthlyTasks().find((item) => item.id === taskId && !item.historic);
       const body = field(form, "body").value.trim();
       if (!state.collaborationReady || !task) throw new Error("Comentários indisponíveis nesta atividade.");
@@ -1270,7 +1272,7 @@ document.addEventListener("submit", async (event) => {
       state.taskComments.push({ ...row, created_at: new Date().toISOString() });
       state.commentsMonth = state.month; delete state.commentDrafts[taskId];
       enqueue({ kind: "insert", table: "fc_task_comments", row });
-    } else if (form.id === "suggestion-form") {
+    } else if (formId === "suggestion-form") {
       const body = field(form, "body").value.trim();
       if (!state.collaborationReady) throw new Error("As sugestões ainda não estão disponíveis.");
       if (body.length < 10 || body.length > 4000) throw new Error("Descreva a sugestão em 10 a 4.000 caracteres.");
@@ -1279,7 +1281,7 @@ document.addEventListener("submit", async (event) => {
       state.suggestionDraft = "";
       enqueue({ kind: "insert", table: "fc_improvement_suggestions", row });
     }
-    else if (form.id === "company-form") {
+    else if (formId === "company-form") {
       if (isHistorical()) throw new Error("Selecione um mês atual ou futuro para cadastrar empresas.");
       const name = field(form, "name").value.trim(), category = field(form, "category").value;
       if (name.length < 2) throw new Error("Informe o nome da empresa.");
@@ -1292,7 +1294,7 @@ document.addEventListener("submit", async (event) => {
       const review = { id: `review-${id}`, company_id: id, account: "REVISÃO DE BALANCETE", group_name: "ENCERRAMENTO", responsible_id: null, responsible_legacy_name: null, created_competence: state.month, active: true };
       state.tasks.push(review); enqueue({ kind: "insert", table: "fc_tasks", row: review });
       form.reset(); toast("Empresa e revisão cadastradas."); render();
-    } else if (form.id === "task-form") {
+    } else if (formId === "task-form") {
       const company_id = field(form, "company_id").value, account = field(form, "account").value.trim();
       if (!company_id || !account) throw new Error("Informe empresa e rotina.");
       if (isHistorical()) throw new Error("Não é possível incluir rotinas em meses históricos.");
@@ -1301,7 +1303,7 @@ document.addEventListener("submit", async (event) => {
       const goal = state.targets.find((item) => item.company_id === company_id && item.competence === state.month);
       if (goal?.delivery_at) saveGoal(company_id, { delivery_at: null });
       form.reset(); toast("Rotina cadastrada."); render();
-    } else if (form.id === "release-form") {
+    } else if (formId === "release-form") {
       if (!state.member?.is_admin) throw new Error("Somente o administrador pode registrar versões.");
       if (!state.online) throw new Error("Conecte-se à internet para registrar uma atualização.");
       const version = field(form, "version").value.trim();
@@ -1311,13 +1313,13 @@ document.addEventListener("submit", async (event) => {
       const { error } = await client.from("fc_release_notes").insert({ version, title, details, created_by: state.member.id });
       if (error) throw error;
       toast("Atualização registrada."); await loadData();
-    } else if (form.id === "holiday-form") {
+    } else if (formId === "holiday-form") {
       const row = { date: field(form, "date").value, name: field(form, "name").value.trim(), created_by: state.member.id };
       if (!row.date || !row.name) throw new Error("Informe data e descrição.");
       changeLocal("holidays", row, ["date"]); enqueue({ kind: "upsert", table: "fc_holidays", row, conflict: "date" }); form.reset();
     }
   } catch (error) {
-    if (form.id === "closing-error-form") closingErrorNotice(`Não foi possível salvar: ${error.message || String(error)}`, true);
+    if (formId === "closing-error-form") closingErrorNotice(`Não foi possível salvar: ${error.message || String(error)}`, true);
     toast(error.message || String(error));
     const message = $("#auth-error"); if (message) message.textContent = error.message || String(error);
   }
@@ -1339,7 +1341,7 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
-  if (element.form?.id === "closing-error-form" && element.name === "status") {
+  if (element.form?.getAttribute("id") === "closing-error-form" && element.name === "status") {
     updateClosingErrorRequirements(element.form);
     return;
   }
@@ -1426,12 +1428,13 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "general-activity") { actGeneralRoutine(id, button.dataset.kind); return; }
   if (action === "general-details") { state.generalOpenId = state.generalOpenId === id ? "" : id; render(); return; }
-  if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) { field(form, "id").value = ""; updateClosingErrorRequirements(form); } closingErrorNotice(""); return; }
+  if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) { field(form, "error_id").value = ""; updateClosingErrorRequirements(form); } closingErrorNotice(""); return; }
   if (action === "edit-closing-error") {
     const item = state.closingErrors.find((row) => row.id === id);
     const form = $("#closing-error-form");
     if (!item || !form) return;
-    for (const name of ["id", "company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "correction_date"])
+    field(form, "error_id").value = item.id;
+    for (const name of ["company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "correction_date"])
       field(form, name).value = item[name] || "";
     field(form, "system_improvement").value = item.system_improvement === null || item.system_improvement === undefined ? "" : String(item.system_improvement);
     updateClosingErrorRequirements(form);

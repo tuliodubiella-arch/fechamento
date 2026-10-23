@@ -27,11 +27,27 @@ test("controle mostra erros históricos, status e datas sem expor HTML", () => {
   assert.match(html, /Registrar novo erro/);
   assert.match(html, /Aguardando validação/);
   assert.match(html, /id="closing-error-form"[^>]*novalidate/);
+  assert.match(html, /name="error_id"/);
+  assert.doesNotMatch(html, /name="id"/);
   assert.match(html, /id="closing-error-save-message"/);
   state.errorStatusFilter = "Aberto";
   const filtered = vm.runInContext("renderClosingErrors()", context);
   assert.match(filtered, /Empresa A/);
   assert.doesNotMatch(filtered, /data-id="two"/);
+});
+
+test("Salvar intercepta o formulário mesmo se um campo mascarar form.id", async () => {
+  const start = source.indexOf('document.addEventListener("submit",');
+  const end = source.indexOf("event.preventDefault();", start) + "event.preventDefault();".length;
+  let onSubmit;
+  const document = { addEventListener: (_event, callback) => { onSubmit = callback; } };
+  vm.runInNewContext(`${source.slice(start, end)}\n});`, { document });
+  let prevented = false;
+  await onSubmit({
+    target: { id: { name: "id" }, getAttribute: (name) => name === "id" ? "closing-error-form" : null, dataset: {} },
+    preventDefault: () => { prevented = true; },
+  });
+  assert.equal(prevented, true, "o navegador não deve recarregar a página ao salvar");
 });
 
 test("edição só confirma correção quando o servidor devolve a linha atualizada", async () => {

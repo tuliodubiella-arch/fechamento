@@ -45,6 +45,8 @@ Na versão `2026.10.22.2`, esse indicador fica compacto, acumulado de janeiro at
 
 Na versão `2026.10.23.1`, a edição online do **Controle de erros** só informa sucesso depois que o servidor devolve a linha corrigida com o status e a data esperados. Falhas de validação e gravação ficam visíveis no formulário; o salvamento offline continua em fila e só é confirmado após sincronizar. Não há migração de banco nesta versão.
 
+Na versão `2026.10.23.2`, o botão **Salvar erro** volta a interceptar o envio do formulário. O campo interno de identificação tinha o nome `id`, que mascarava o identificador do formulário no navegador: o clique recarregava a página sem gravar a edição. O campo foi renomeado e o envio passou a ler o atributo do formulário diretamente. Não há migração de banco nesta versão.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
