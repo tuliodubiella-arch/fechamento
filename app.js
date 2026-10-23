@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.22.2";
+const APP_VERSION = "2026.10.23.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -19,7 +19,7 @@ const state = {
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalRecurrenceDrafts: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
-  recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "",
+  recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "", errorSaveNotice: "", errorSaveFailed: false,
   invitePendingIds: [], inviteStatus: "idle",
   historyLoaded: false,
 };
@@ -150,6 +150,13 @@ async function insertCollaborationRecord(item) {
     ? Date.parse(existing.data[key]) === Date.parse(item.row[key])
     : (existing.data[key] ?? null) === (item.row[key] ?? null)) ? { error: null } : result;
 }
+async function updateClosingError(id, values) {
+  const { data, error } = await client.from("fc_closing_errors").update(values).eq("id", id).select();
+  if (error) throw error;
+  if (data?.length !== 1 || data[0].id !== id || data[0].status !== values.status || data[0].correction_date !== values.correction_date)
+    throw new Error("O servidor não confirmou a atualização deste erro. O status anterior foi mantido; tente novamente ou avise o administrador.");
+  return data[0];
+}
 async function flush() {
   if (!state.online || !state.member || flushing || (state.recoveryHold && !state.recoveryApproved)) return;
   flushing = true;
@@ -161,6 +168,10 @@ async function flush() {
       else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
       else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions", "fc_closing_errors", "fc_general_routines", "fc_general_routine_notes"].includes(item.table)) result = await insertCollaborationRecord(item);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
+      else if (item.kind === "update" && item.table === "fc_closing_errors") {
+        const row = await updateClosingError(item.where.id, item.values);
+        result = { data: [row], error: null };
+      }
       else if (item.kind === "update") {
         let query = client.from(item.table).update(item.values);
         for (const [key, value] of Object.entries(item.where)) query = query.eq(key, value);
@@ -169,6 +180,10 @@ async function flush() {
       if (result?.error) throw result.error;
       state.queue.shift();
       localStorage.setItem(queueKey(), JSON.stringify(state.queue));
+      if (item.table === "fc_closing_errors") {
+        state.errorSaveNotice = "Alteração do controle de erros confirmada no servidor.";
+        state.errorSaveFailed = false;
+      }
     }
     if (state.recoveryHold) {
       localStorage.removeItem(recoveryKey());
@@ -182,6 +197,10 @@ async function flush() {
     await loadData();
   } catch (error) {
     state.syncError = error.message || String(error);
+    if (state.queue[0]?.table === "fc_closing_errors") {
+      state.errorSaveNotice = `A alteração ainda não foi confirmada: ${state.syncError}`;
+      state.errorSaveFailed = true;
+    }
     if (state.queue.length && (error.status ? error.status >= 400 && error.status < 500 : Boolean(error.code))) {
       state.recoveryHold = true;
       state.recoveryApproved = false;
@@ -751,9 +770,10 @@ function renderClosingErrors() {
   const pending = new Set(state.queue.filter((item) => item.table === "fc_closing_errors").map((item) => item.row?.id || item.where?.id));
   return `<section class="panel closing-errors"><div class="panel-head"><div><h2>Controle de erros</h2><p>Erros identificados nos fechamentos anteriores e acompanhamento das correções pela equipe. Os registros novos são feitos aqui, sem planilha externa.</p></div></div>
     <div class="panel-body">${state.errorFeatureError ? `<div class="notice warn">Não foi possível atualizar o controle de erros: ${esc(state.errorFeatureError)}</div>` : ""}
+      <div id="closing-error-save-message" class="notice ${state.errorSaveFailed ? "warn" : ""}" role="status" ${state.errorSaveNotice ? "" : "hidden"}>${esc(state.errorSaveNotice)}</div>
       <div class="error-summary"><div><strong>${all.filter((item) => item.status === "Aberto").length}</strong><span>Aberto(s)</span></div><div><strong>${all.filter((item) => !["Aberto", "Corrigido"].includes(item.status)).length}</strong><span>Em andamento</span></div><div><strong>${all.filter((item) => item.status === "Corrigido").length}</strong><span>Corrigido(s)</span></div></div>
       <details class="error-editor" id="error-editor"><summary>Registrar novo erro ou editar item existente</summary>
-        <form id="closing-error-form" class="form-grid"><input type="hidden" name="id"><label class="field"><span>Empresa</span><input class="input" name="company_name" list="error-companies" maxlength="200" required></label><label class="field"><span>Usuário / responsável</span><input class="input" name="assigned_user" list="error-people" maxlength="200"></label>
+        <form id="closing-error-form" class="form-grid" novalidate><input type="hidden" name="id"><label class="field"><span>Empresa</span><input class="input" name="company_name" list="error-companies" maxlength="200" required></label><label class="field"><span>Usuário / responsável</span><input class="input" name="assigned_user" list="error-people" maxlength="200"></label>
         <label class="field"><span>Quem solicitou</span><input class="input" name="requested_by" maxlength="200"></label><label class="field"><span>Data da solicitação</span><input class="input" name="requested_at" type="date"></label>
         <label class="field"><span>Erro / identificação</span><input class="input" name="error_label" maxlength="500"></label><label class="field"><span>Status</span><select class="select" name="status">${errorStatuses.map((status) => `<option value="${esc(status)}">${esc(status)}</option>`).join("")}</select></label>
         <label class="field wide"><span>Histórico / descrição do erro</span><textarea class="input" name="description" rows="4" maxlength="10000" required></textarea></label>
@@ -814,6 +834,22 @@ function renderGeneralRoutines() {
           <div class="general-card-actions"><button class="btn compact play" data-action="general-activity" data-kind="play" data-id="${esc(routine.id)}" ${!canControl || !["Não iniciada", "Pausada"].includes(routine.status) ? "disabled" : ""}>▶ PLAY</button><button class="btn compact pause" data-action="general-activity" data-kind="pause" data-id="${esc(routine.id)}" ${!canControl || routine.status !== "Em andamento" ? "disabled" : ""}>Ⅱ PAUSE</button><button class="btn compact stop" data-action="general-activity" data-kind="finish" data-id="${esc(routine.id)}" ${!canControl || !["Em andamento", "Pausada"].includes(routine.status) ? "disabled" : ""}>■ FINISH</button><button class="btn compact" data-action="general-details" data-id="${esc(routine.id)}">${state.generalOpenId === routine.id ? "Ocultar anotações" : `Anotações e histórico (${entries.length})`}</button></div>
           ${state.generalOpenId === routine.id ? `<div class="general-details"><h4>Acompanhamento da rotina</h4>${canControl && routine.status !== "Finalizada" ? `<form class="form-grid general-recurrence-form" data-form="general-recurrence" data-routine-id="${esc(routine.id)}"><h4 class="wide">Programação da recorrência</h4>${generalRecurrenceFields(state.generalRecurrenceDrafts[routine.id]?.recurrence_frequency ?? routine.recurrence_frequency ?? "none", state.generalRecurrenceDrafts[routine.id]?.next_scheduled_date ?? routine.next_scheduled_date)}<button class="btn" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar recorrência</button></form>` : ""}<div class="general-timeline">${entries.length ? entries.map((entry) => `<div class="general-entry ${entry.type}"><strong>${entry.type === "note" ? "Anotação" : ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[entry.action]}</strong><span>${entry.type === "note" ? esc(entry.body).replace(/\n/g, "<br>") : entry.elapsed_seconds ? `+ ${duration(entry.elapsed_seconds)} de trabalho` : "Registro de tempo"}</span><small>${esc(memberName(entry.author_id || entry.actor_id, "Usuário removido"))} · ${brasilia(entry.occurred_at)}</small></div>`).join("") : '<p class="muted">Ainda não há apontamentos nesta rotina.</p>'}</div>${routine.status !== "Finalizada" ? `<form data-form="general-note" data-routine-id="${esc(routine.id)}"><label class="field"><span>O que foi feito / observações</span><textarea class="input" name="body" rows="3" maxlength="4000" required placeholder="Registre o andamento, impedimentos ou próximos passos">${esc(state.generalNoteDrafts[routine.id] || "")}</textarea></label><button class="btn primary" type="submit" ${state.generalReady ? "" : "disabled"}>Salvar anotação</button></form>` : '<p class="muted">Rotina finalizada. O histórico permanece disponível para consulta.</p>'}</div>` : ""}</article>`;
       }).join("") || '<div class="empty">Nenhuma rotina encontrada. Cadastre uma nova ou ajuste os filtros.</div>'}</div></div></section>`;
+}
+function closingErrorNotice(message, failed = false) {
+  state.errorSaveNotice = message;
+  state.errorSaveFailed = failed;
+  const element = $("#closing-error-save-message");
+  if (element) {
+    element.textContent = message;
+    element.classList.toggle("warn", failed);
+    element.hidden = !message;
+  }
+}
+function updateClosingErrorRequirements(form) {
+  const corrected = field(form, "status").value === "Corrigido";
+  field(form, "correction_date").required = corrected;
+  const existing = state.closingErrors.find((item) => item.id === field(form, "id").value);
+  field(form, "system_improvement").required = corrected && !existing?.source_row;
 }
 function renderRegistry() {
   const companyOptions = state.companies.filter((item) => item.active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
@@ -1179,6 +1215,7 @@ document.addEventListener("submit", async (event) => {
     }
     else if (form.id === "closing-error-form") {
       if (!state.errorFeatureReady) throw new Error("O controle de erros ainda não está disponível neste aparelho.");
+      updateClosingErrorRequirements(form);
       const id = field(form, "id").value;
       const existing = id ? state.closingErrors.find((item) => item.id === id) : null;
       if (id && !existing) throw new Error("Este erro não está mais disponível para edição.");
@@ -1189,6 +1226,7 @@ document.addEventListener("submit", async (event) => {
       if (status === "Corrigido" && !correctionDate) throw new Error("Informe a data da correção para concluir o erro.");
       if (status !== "Corrigido" && correctionDate) throw new Error("A data da correção só pode ser informada quando o status for Corrigido.");
       if (status === "Corrigido" && !improvementValue && !existing?.source_row) throw new Error("Informe se a correção veio de melhoria em sistema.");
+      if (!form.checkValidity()) { form.reportValidity(); throw new Error("Revise os campos obrigatórios e as datas antes de salvar."); }
       const values = {
         company_name: field(form, "company_name").value.trim(), assigned_user: field(form, "assigned_user").value.trim() || null,
         requested_by: field(form, "requested_by").value.trim() || null, requested_at: field(form, "requested_at").value || null,
@@ -1198,14 +1236,30 @@ document.addEventListener("submit", async (event) => {
       };
       if (values.company_name.length < 2 || !values.description) throw new Error("Informe empresa e descrição do erro.");
       if (existing) {
-        Object.assign(existing, values);
-        enqueue({ kind: "update", table: "fc_closing_errors", where: { id }, values });
+        if (state.queue.some((item) => item.table === "fc_closing_errors" && (item.where?.id === id || item.row?.id === id)))
+          throw new Error("Este erro ainda tem uma alteração aguardando sincronização. Confira as pendências antes de editá-lo novamente.");
+        if (state.online) {
+          const button = form.querySelector('[type="submit"]');
+          button.disabled = true;
+          closingErrorNotice("Salvando a alteração no servidor…");
+          try {
+            const saved = await updateClosingError(id, values);
+            Object.assign(existing, saved);
+            closingErrorNotice("Alteração confirmada no servidor. Se o filtro estiver em ‘Aberto’, um item corrigido sairá dessa lista.");
+            try { saveCache(); } catch { /* A gravação no servidor já foi confirmada. */ }
+            render(); toast("Erro atualizado e confirmado no servidor.");
+          } finally { button.disabled = false; }
+        } else {
+          Object.assign(existing, values);
+          closingErrorNotice("Alteração guardada neste aparelho; aguarde a sincronização antes de considerar o erro corrigido.");
+          enqueue({ kind: "update", table: "fc_closing_errors", where: { id }, values });
+        }
       } else {
         const row = { id: uid(), ...values, created_by: state.member.id };
         state.closingErrors.push(row);
+        closingErrorNotice("Novo erro guardado; aguardando confirmação do servidor.");
         enqueue({ kind: "insert", table: "fc_closing_errors", row });
       }
-      toast(existing ? "Erro atualizado." : "Erro registrado.");
     }
     else if (form.id === "comment-form") {
       const taskId = form.dataset.taskId, task = monthlyTasks().find((item) => item.id === taskId && !item.historic);
@@ -1262,7 +1316,11 @@ document.addEventListener("submit", async (event) => {
       if (!row.date || !row.name) throw new Error("Informe data e descrição.");
       changeLocal("holidays", row, ["date"]); enqueue({ kind: "upsert", table: "fc_holidays", row, conflict: "date" }); form.reset();
     }
-  } catch (error) { toast(error.message || String(error)); const message = $("#auth-error"); if (message) message.textContent = error.message || String(error); }
+  } catch (error) {
+    if (form.id === "closing-error-form") closingErrorNotice(`Não foi possível salvar: ${error.message || String(error)}`, true);
+    toast(error.message || String(error));
+    const message = $("#auth-error"); if (message) message.textContent = error.message || String(error);
+  }
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "search") { state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = $("#search"); input.focus(); input.setSelectionRange(pos, pos); }
@@ -1281,6 +1339,10 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("change", (event) => {
   const element = event.target;
+  if (element.form?.id === "closing-error-form" && element.name === "status") {
+    updateClosingErrorRequirements(element.form);
+    return;
+  }
   if (element.form?.id === "general-routine-form" || element.form?.dataset.form === "general-recurrence") {
     if (element.form.id === "general-routine-form") { state.generalCreateDraft[element.name] = element.value; state.generalCreateOpen = true; }
     else {
@@ -1364,7 +1426,7 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "general-activity") { actGeneralRoutine(id, button.dataset.kind); return; }
   if (action === "general-details") { state.generalOpenId = state.generalOpenId === id ? "" : id; render(); return; }
-  if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) field(form, "id").value = ""; return; }
+  if (action === "clear-error-form") { const form = $("#closing-error-form"); form?.reset(); if (form) { field(form, "id").value = ""; updateClosingErrorRequirements(form); } closingErrorNotice(""); return; }
   if (action === "edit-closing-error") {
     const item = state.closingErrors.find((row) => row.id === id);
     const form = $("#closing-error-form");
@@ -1372,6 +1434,8 @@ document.addEventListener("click", async (event) => {
     for (const name of ["id", "company_name", "assigned_user", "requested_by", "requested_at", "error_label", "description", "status", "correction_date"])
       field(form, name).value = item[name] || "";
     field(form, "system_improvement").value = item.system_improvement === null || item.system_improvement === undefined ? "" : String(item.system_improvement);
+    updateClosingErrorRequirements(form);
+    closingErrorNotice("");
     $("#error-editor").open = true;
     $("#error-editor").scrollIntoView({ behavior: "smooth", block: "start" });
     return;

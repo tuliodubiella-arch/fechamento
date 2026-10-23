@@ -26,10 +26,28 @@ test("controle mostra erros históricos, status e datas sem expor HTML", () => {
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /Registrar novo erro/);
   assert.match(html, /Aguardando validação/);
+  assert.match(html, /id="closing-error-form"[^>]*novalidate/);
+  assert.match(html, /id="closing-error-save-message"/);
   state.errorStatusFilter = "Aberto";
   const filtered = vm.runInContext("renderClosingErrors()", context);
   assert.match(filtered, /Empresa A/);
   assert.doesNotMatch(filtered, /data-id="two"/);
+});
+
+test("edição só confirma correção quando o servidor devolve a linha atualizada", async () => {
+  const updateCode = source.slice(source.indexOf("async function updateClosingError("), source.indexOf("async function flush()"));
+  const values = { status: "Corrigido", correction_date: "2026-10-23" };
+  let response = { data: [{ id: "one", ...values }], error: null };
+  const client = { from: () => ({ update: () => ({ eq: () => ({ select: async () => response }) }) }) };
+  const context = vm.createContext({ client });
+  vm.runInContext(updateCode, context);
+  assert.equal((await context.updateClosingError("one", values)).status, "Corrigido");
+  response = { data: [], error: null };
+  await assert.rejects(context.updateClosingError("one", values), /não confirmou a atualização/);
+  response = { data: [{ id: "one", status: "Aberto", correction_date: null }], error: null };
+  await assert.rejects(context.updateClosingError("one", values), /não confirmou a atualização/);
+  response = { data: null, error: new Error("permissão negada") };
+  await assert.rejects(context.updateClosingError("one", values), /permissão negada/);
 });
 
 test("migração protege o controle e exige data para status corrigido", () => {

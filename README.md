@@ -43,6 +43,8 @@ Na versão `2026.10.22.1`, a migração `supabase/migrations/20261022_official_c
 
 Na versão `2026.10.22.2`, esse indicador fica compacto, acumulado de janeiro até o mês selecionado. O detalhamento mensal abre na própria tela e pode ser impresso separadamente em PDF, sem os demais quadros do painel.
 
+Na versão `2026.10.23.1`, a edição online do **Controle de erros** só informa sucesso depois que o servidor devolve a linha corrigida com o status e a data esperados. Falhas de validação e gravação ficam visíveis no formulário; o salvamento offline continua em fila e só é confirmado após sincronizar. Não há migração de banco nesta versão.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.
