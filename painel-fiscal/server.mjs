@@ -24,18 +24,20 @@ const hashSetupToken=value=>createHash('sha256').update(value).digest('hex');
 const text=(v,max=2000)=>typeof v==='string'?v.trim().slice(0,max):'';
 const event=(user,action,item)=>{db.events.unshift({id:randomUUID(),user:user.name,action,item:item?.title||'Equipe',at:new Date().toISOString()});db.events=db.events.slice(0,1000);};
 const dateValid=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&!Number.isNaN(Date.parse(d));
-const body=async req=>{const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>22*1024*1024)throw Object.assign(Error('Envio muito grande. Anexe até 3 prints de 5 MB cada.'),{status:413});chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');};
+const body=async req=>{const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>22*1024*1024)throw Object.assign(Error('Envio muito grande. Anexe até 3 arquivos de 5 MB cada.'),{status:413});chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');};
 function storeAttachments(input){
- if(input===undefined)return [];if(!Array.isArray(input)||input.length>3)throw Object.assign(Error('Anexe até 3 prints por registro.'),{status:400});
+ if(input===undefined)return [];if(!Array.isArray(input)||input.length>3)throw Object.assign(Error('Anexe até 3 arquivos por registro.'),{status:400});
  const images=input.map(a=>{
- if(!a||typeof a.data!=='string'||a.data.length>7*1024*1024||!/^[A-Za-z0-9+/]*={0,2}$/.test(a.data))throw Object.assign(Error('Print inválido.'),{status:400});
- const bytes=Buffer.from(a.data,'base64');if(!bytes.length||bytes.length>5*1024*1024)throw Object.assign(Error('Cada print deve ter no máximo 5 MB.'),{status:400});
+ if(!a||typeof a.data!=='string'||a.data.length>7*1024*1024||!/^[A-Za-z0-9+/]*={0,2}$/.test(a.data))throw Object.assign(Error('Arquivo inválido.'),{status:400});
+ const bytes=Buffer.from(a.data,'base64');if(!bytes.length||bytes.length>5*1024*1024)throw Object.assign(Error('Cada arquivo deve ter no máximo 5 MB.'),{status:400});
  const png=bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&bytes.length>=24&&bytes.toString('ascii',12,16)==='IHDR';
  const jpeg=bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255;
  const webp=bytes.length>=16&&bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP';
- const mime=png?'image/png':jpeg?'image/jpeg':webp?'image/webp':null;
- if(!mime||mime!==a.type)throw Object.assign(Error('Use prints em PNG, JPG ou WebP.'),{status:400});
- const id=randomUUID();return {bytes,meta:{id,name:text(a.name,150)||'Print',type:mime,size:bytes.length,file:id+({ 'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp'})[mime]}};
+ const types={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp',pdf:'application/pdf',xls:'application/vnd.ms-excel',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'};
+ const ext=path.extname(text(a.name,150)).slice(1).toLowerCase(),mime=types[ext],ole=bytes.subarray(0,8).equals(Buffer.from([208,207,17,224,161,177,26,225])),zip=bytes.subarray(0,4).equals(Buffer.from([80,75,3,4]));
+ const valid=mime==='image/png'?png:mime==='image/jpeg'?jpeg:mime==='image/webp'?webp:ext==='pdf'?bytes.toString('ascii',0,5)==='%PDF-':ext==='xls'||ext==='doc'?ole:ext==='xlsx'?zip&&bytes.includes(Buffer.from('xl/workbook.xml'))&&bytes.includes(Buffer.from('[Content_Types].xml')):ext==='docx'?zip&&bytes.includes(Buffer.from('word/document.xml'))&&bytes.includes(Buffer.from('[Content_Types].xml')):false;
+ if(!mime||mime!==a.type||!valid)throw Object.assign(Error('Arquivo inválido. Use imagens, Excel (XLS/XLSX), Word (DOC/DOCX) ou PDF.'),{status:400});
+ const id=randomUUID();return {bytes,meta:{id,name:text(a.name,150)||'Arquivo',type:mime,size:bytes.length,file:id+'.'+ext}};
  });
  mkdirSync(path.join(dir,'attachments'),{recursive:true});for(const i of images)writeFileSync(path.join(dir,'attachments',i.meta.file),i.bytes);return images.map(i=>i.meta);
 }
@@ -60,8 +62,8 @@ const server=http.createServer(async(req,res)=>{
  if(route==='/api/logout'&&req.method==='POST'){sessions.delete(token);res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return send(200,{ok:true});}
  const imageMatch=route.match(/^\/api\/attachments\/([0-9a-f-]{36})$/);if(imageMatch&&req.method==='GET'){
  const attachment=db.items.flatMap(i=>[...i.comments,...i.executions]).flatMap(n=>n.attachments||[]).find(a=>a.id===imageMatch[1]);
- if(!attachment)return send(404,{error:'Print não encontrado.'});
- const bytes=readFileSync(path.join(dir,'attachments',attachment.file));res.writeHead(200,{'Content-Type':attachment.type,'Content-Length':bytes.length,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store','Content-Disposition':'inline'});return res.end(bytes);
+ if(!attachment)return send(404,{error:'Anexo não encontrado.'});
+ const bytes=readFileSync(path.join(dir,'attachments',attachment.file));res.writeHead(200,{'Content-Type':attachment.type,'Content-Length':bytes.length,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store','Content-Disposition':attachment.type.startsWith('image/')&&!url.searchParams.has('download')?'inline':"attachment; filename*=UTF-8''"+encodeURIComponent(attachment.name).replace(/'/g,'%27')});return res.end(bytes);
  }
  if(route==='/api/state'&&req.method==='GET')return send(200,{user:cleanUser(user),users:db.users.map(cleanUser),personalItems:db.personalItems.filter(i=>i.owner===user.id&&!i.deletedAt),items:db.items.filter(i=>!i.deletedAt),groups:db.groups.filter(g=>!g.deletedAt),events:db.events});
  if(await handlePersonal(route,req,{db,user,body,send,save,event}))return;
