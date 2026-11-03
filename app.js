@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.10.23.2";
+const APP_VERSION = "2026.11.03.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -25,6 +25,8 @@ const state = {
 };
 let flushing = false;
 let toastTimer;
+let draggedGoalId = "";
+let touchGoalId = "", touchGoalStartY = 0, touchGoalMoved = false;
 
 function toast(message) {
   const element = $("#toast");
@@ -272,6 +274,12 @@ async function loadData() {
     ]);
     if (requestedMonth !== state.month) return;
     state.members = members; state.companies = companies; state.tasks = tasks; state.owners = owners; state.targets = targets;
+    for (const item of state.queue.filter((entry) => entry.kind === "rpc" && entry.name === "fc_reorder_targets" && entry.args.p_competence === requestedMonth)) {
+      item.args.p_company_ids.forEach((id, index) => {
+        const company = state.companies.find((row) => row.id === id);
+        if (company) changeLocal("targets", { ...targetFor(company), sort_order: index + 1 }, ["company_id", "competence"]);
+      });
+    }
     state.receipts = receipts; state.states = activityStates; state.holidays = holidays; state.history = history;
     state.taskLabelsReady = !labelEdits.error;
     state.taskLabelsError = labelEdits.error?.message || "";
@@ -663,13 +671,13 @@ function renderGoals() {
     company.goal.business_day || "—", dateBR(isHistorical() ? company.goal.legacy_deadline : plannedDate(state.month, company.goal.business_day))]);
   const printDensity = companies.length > 52 ? "very-dense" : companies.length > 38 ? "dense" : "";
   const goalTable = (rows) => `<div class="table-wrap"><table class="goals-table"><thead><tr><th>Ordem</th><th>Empresa</th><th>Prioridade</th><th>Dia útil</th><th>Previsão</th><th>Data de entrega</th>${departments.map((item) => `<th>${esc(item)}</th>`).join("")}<th>Mover</th></tr></thead>
-    <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr><td data-label="Ordem"><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td data-label="Empresa"><strong>${esc(company.name)}</strong></td>
+    <tbody>${rows.map((company, index) => { const goal = company.goal; return `<tr data-goal-drop="${esc(company.id)}"><td data-label="Ordem"><strong>${companies.findIndex((item) => item.id === company.id) + 1}</strong></td><td data-label="Empresa">${state.month >= "2026-10" ? `<span class="goal-drag-handle" draggable="true" data-goal-drag="${esc(company.id)}" title="Arraste para mudar a ordem deste mês" aria-label="Arrastar ${esc(company.name)} para outra posição">⠿</span>` : ""}<strong>${esc(company.name)}</strong></td>
       <td data-label="Prioridade"><select class="select" data-action="goal-category" data-id="${esc(company.id)}" ${isHistorical() ? "disabled" : ""}><option ${goal.category === "HOLDING" ? "selected" : ""}>HOLDING</option><option ${goal.category === "DEMAIS" ? "selected" : ""}>DEMAIS</option></select></td>
       <td data-label="Dia útil"><input class="input" type="number" min="1" max="23" data-action="goal-day" data-id="${esc(company.id)}" value="${esc(goal.business_day || "")}" ${isHistorical() ? "disabled" : ""}></td>
       <td data-label="Previsão"><strong>${dateBR(isHistorical() ? goal.legacy_deadline : plannedDate(state.month, goal.business_day))}</strong></td><td data-label="Data de entrega">${closingDateLabel(goal)}</td>
       ${departments.map((department) => renderReceiptCell(company, department)).join("")}
-      <td data-label="Mover"><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || isHistorical() ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
-  return `<section class="panel goals-panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem mensal de fechamento. HOLDING primeiro; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
+      <td data-label="Mover"><div class="actions"><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="up" ${index === 0 || rows[index - 1].goal.category !== goal.category || state.month < "2026-10" ? "disabled" : ""}>↑</button><button class="btn compact" data-action="move" data-id="${esc(company.id)}" data-direction="down" ${index === rows.length - 1 || rows[index + 1].goal.category !== goal.category || state.month < "2026-10" ? "disabled" : ""}>↓</button></div></td></tr>`; }).join("")}</tbody></table></div>`;
+  return `<section class="panel goals-panel"><div class="panel-head"><div><h2>Entregas pendentes · ${pendingCompanies.length} empresa(s)</h2><p>Ordem própria deste mês. Arraste ⠿ para posicionar a empresa dentro da mesma prioridade; o dia útil programa a data no mês seguinte.</p></div><div class="actions no-print"><button class="btn compact" data-action="print-goals">Imprimir lista / PDF</button><button class="btn compact" data-action="xlsx-goals">Exportar XLSX</button></div></div>
     ${pendingCompanies.length ? goalTable(pendingCompanies) : '<div class="empty">Nenhuma empresa com entrega pendente neste mês.</div>'}
     <div class="footer-note">Uma empresa passa ao quadro abaixo quando Financeiro, RH, Estoque, Fiscal e Balancete estiverem como Recebido ou N/A. Dias úteis excluem fins de semana e feriados cadastrados.</div></section>${renderReceiptPanel()}
     <section class="panel goals-panel"><div class="panel-head"><div><h2>Empresas com entregas concluídas · ${deliveredCompanies.length}</h2><p>Todos os cinco itens foram recebidos ou marcados como N/A. A ordem original é preservada.</p></div></div>
@@ -682,6 +690,24 @@ function orderedGoals() {
     ? state.targets.some((goal) => goal.company_id === item.id && goal.competence === state.month) : item.active)
     .map((company) => ({ ...company, goal: targetFor(company) }))
     .sort((a, b) => a.goal.category === b.goal.category ? a.goal.sort_order - b.goal.sort_order : a.goal.category === "HOLDING" ? -1 : 1);
+}
+function moveGoal(sourceId, targetId, after = false) {
+  if (state.month < "2026-10") return toast("A ordem dos meses anteriores a outubro/2026 foi preservada.");
+  const ordered = orderedGoals();
+  const source = ordered.find((item) => item.id === sourceId);
+  const target = ordered.find((item) => item.id === targetId);
+  if (!source || !target || sourceId === targetId) return;
+  if (source.goal.category !== target.goal.category || companyDeliveriesComplete(sourceId) !== companyDeliveriesComplete(targetId))
+    return toast("Mova a empresa dentro da mesma prioridade e do mesmo quadro de entregas.");
+  const ids = ordered.map((item) => item.id);
+  ids.splice(ids.indexOf(sourceId), 1);
+  ids.splice(ids.indexOf(targetId) + (after ? 1 : 0), 0, sourceId);
+  if (ids.every((id, index) => id === ordered[index].id)) return;
+  ids.forEach((id, index) => {
+    const company = state.companies.find((item) => item.id === id);
+    changeLocal("targets", { ...targetFor(company), sort_order: index + 1 }, ["company_id", "competence"]);
+  });
+  enqueue({ kind: "rpc", name: "fc_reorder_targets", args: { p_competence: state.month, p_company_ids: ids } });
 }
 function goalExportRows() {
   return orderedGoals().map((company, index) => {
@@ -1549,13 +1575,10 @@ document.addEventListener("click", async (event) => {
     if (state.companies.some((item) => item.id !== id && item.name.trim().toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"))) return toast("Esta empresa já está cadastrada.");
     company.name = name; enqueue({ kind: "update", table: "fc_companies", where: { id }, values: { name } });
   } else if (action === "move") {
-    const company = state.companies.find((item) => item.id === id); if (!company) return;
     const inDeliveredBoard = companyDeliveriesComplete(id);
     const ordered = orderedGoals().filter((item) => companyDeliveriesComplete(item.id) === inDeliveredBoard);
     const index = ordered.findIndex((item) => item.id === id), other = ordered[index + (button.dataset.direction === "up" ? -1 : 1)];
-    if (!other || other.goal.category !== ordered[index].goal.category) return;
-    const previousOrder = ordered[index].goal.sort_order, nextOrder = other.goal.sort_order;
-    saveGoal(id, { sort_order: nextOrder }); saveGoal(other.id, { sort_order: previousOrder });
+    if (other) moveGoal(id, other.id, button.dataset.direction === "down");
   } else if (action === "print-goals") {
     window.print();
   } else if (action === "print-closing-monthly") {
@@ -1578,6 +1601,63 @@ document.addEventListener("click", async (event) => {
     await client.auth.signOut(); state.session = null; state.member = null; state.ready = false; render();
   }
 });
+document.addEventListener("dragstart", (event) => {
+  const handle = event.target.closest?.("[data-goal-drag]");
+  if (!handle || state.tab !== "Metas" || state.month < "2026-10") return;
+  draggedGoalId = handle.dataset.goalDrag;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", draggedGoalId);
+  handle.closest("tr")?.classList.add("goal-dragging");
+});
+document.addEventListener("dragover", (event) => {
+  const row = event.target.closest?.("[data-goal-drop]");
+  if (!row || !draggedGoalId || row.dataset.goalDrop === draggedGoalId) return;
+  const source = orderedGoals().find((item) => item.id === draggedGoalId);
+  const target = orderedGoals().find((item) => item.id === row.dataset.goalDrop);
+  if (!source || !target || source.goal.category !== target.goal.category
+    || companyDeliveriesComplete(source.id) !== companyDeliveriesComplete(target.id)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  document.querySelectorAll(".goal-drop-target").forEach((item) => item.classList.remove("goal-drop-target"));
+  row.classList.add("goal-drop-target");
+});
+document.addEventListener("drop", (event) => {
+  const row = event.target.closest?.("[data-goal-drop]");
+  if (!row || !draggedGoalId) return;
+  event.preventDefault();
+  const after = event.clientY >= row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+  moveGoal(draggedGoalId, row.dataset.goalDrop, after);
+  draggedGoalId = "";
+  document.querySelectorAll(".goal-drop-target,.goal-dragging").forEach((item) => item.classList.remove("goal-drop-target", "goal-dragging"));
+});
+document.addEventListener("dragend", () => {
+  draggedGoalId = "";
+  document.querySelectorAll(".goal-drop-target,.goal-dragging").forEach((item) => item.classList.remove("goal-drop-target", "goal-dragging"));
+});
+document.addEventListener("pointerdown", (event) => {
+  if (event.pointerType !== "touch" || state.tab !== "Metas" || state.month < "2026-10") return;
+  const handle = event.target.closest?.("[data-goal-drag]");
+  if (!handle) return;
+  touchGoalId = handle.dataset.goalDrag;
+  touchGoalStartY = event.clientY;
+  touchGoalMoved = false;
+});
+document.addEventListener("pointermove", (event) => {
+  if (event.pointerType !== "touch" || !touchGoalId) return;
+  if (Math.abs(event.clientY - touchGoalStartY) > 8) touchGoalMoved = true;
+  if (!touchGoalMoved) return;
+  const row = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-goal-drop]");
+  document.querySelectorAll(".goal-drop-target").forEach((item) => item.classList.remove("goal-drop-target"));
+  if (row) row.classList.add("goal-drop-target");
+});
+document.addEventListener("pointerup", (event) => {
+  if (event.pointerType !== "touch" || !touchGoalId) return;
+  const row = touchGoalMoved ? document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-goal-drop]") : null;
+  if (row) moveGoal(touchGoalId, row.dataset.goalDrop, event.clientY >= row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2);
+  touchGoalId = "";
+  document.querySelectorAll(".goal-drop-target").forEach((item) => item.classList.remove("goal-drop-target"));
+});
+document.addEventListener("pointercancel", () => { touchGoalId = ""; });
 window.addEventListener("online", () => { state.online = true; void flush(); render(); });
 window.addEventListener("offline", () => { state.online = false; render(); });
 window.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.commentTaskId) { state.commentTaskId = ""; render(); } });

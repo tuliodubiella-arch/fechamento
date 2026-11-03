@@ -47,6 +47,8 @@ Na versão `2026.10.23.1`, a edição online do **Controle de erros** só inform
 
 Na versão `2026.10.23.2`, o botão **Salvar erro** volta a interceptar o envio do formulário. O campo interno de identificação tinha o nome `id`, que mascarava o identificador do formulário no navegador: o clique recarregava a página sem gravar a edição. O campo foi renomeado e o envio passou a ler o atributo do formulário diretamente. Não há migração de banco nesta versão.
 
+Na versão `2026.11.03.1`, a ordem das Metas pode ser alterada a partir de outubro/2026, independentemente em cada competência. Arraste a alça ⠿ da empresa para outra linha da mesma prioridade e do mesmo quadro de entregas; as setas continuam disponíveis. A lista inteira recebe números sequenciais em uma única gravação, inclusive quando as posições anteriores estavam empatadas em `9999`. Aplique `supabase/migrations/20261103_monthly_goal_order.sql` antes de publicar a página. Os meses anteriores não são modificados.
+
 ## Endereço e convites personalizados
 
 - O endereço curto usa um repositório GitHub Pages próprio chamado `fechamento`, sem DNS da empresa. O endereço anterior permanece disponível durante a transição. As duas versões compartilham o mesmo banco; evite registrar a mesma atividade nas duas abas ao mesmo tempo quando estiver offline.

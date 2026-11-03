@@ -98,6 +98,7 @@
 .execution-table th,.execution-table td,.goals-table th,.goals-table td{padding:7px 6px;overflow-wrap:anywhere}
 .execution-table td{font-size:16px;line-height:1.3}
 .goals-table td{font-size:15px;line-height:1.3}
+.goal-drag-handle{display:inline-block;margin-right:6px;padding:2px 5px;border:1px solid #cbd5e1;border-radius:6px;color:#475569;cursor:grab;user-select:none;touch-action:none}.goal-drag-handle:active{cursor:grabbing}.goals-table tr.goal-drop-target{outline:3px solid #f9b31c;outline-offset:-3px}.goals-table tr.goal-dragging{opacity:.55}
 .execution-table td .select,.goals-table td .select,.goals-table td .input{min-width:0;width:100%;font-size:14px}
 .execution-table td:first-child strong,.goals-table td:nth-child(2) strong{font-size:17px}
 .execution-table th:nth-child(1){width:17%}.execution-table th:nth-child(2){width:14%}.execution-table th:nth-child(3){width:13%}.execution-table th:nth-child(4){width:8%}.execution-table th:nth-child(5){width:7%}.execution-table th:nth-child(6),.execution-table th:nth-child(7){width:8%}.execution-table th:nth-child(8){width:12%}.execution-table th:nth-child(9){width:13%}
