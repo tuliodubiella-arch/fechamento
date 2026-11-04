@@ -42,3 +42,10 @@ A primeira versão usa atas digitadas, conforme a escolha do grupo. Pauta, ata, 
 Aplicar `supabase/fiscal_meetings.sql` uma única vez e implantar `supabase/functions/fiscal-invite-member/index.ts`. A função verifica a identidade no Supabase Auth e o perfil de administrador do fiscal a cada chamada. Não usa chave de serviço no navegador. O envio utiliza o serviço de e-mail já configurado no Supabase. Em Authentication > URL Configuration, manter o endereço https://tuliodubiella-arch.github.io/fechamento/painel-fiscal/ autorizado nos redirecionamentos. Contas novas recebem convite para definir a senha. Contas existentes recebem um link de acesso e mantêm a senha atual. A tela Equipe mantém o cadastro direto como alternativa.
 
 Os testes de e-mail usam um transporte simulado e não disparam convites reais. O envio real depende da configuração e das cotas do provedor de e-mail do projeto.
+
+
+## Importação de atas
+
+A tela Reuniões permite importar o conteúdo de atas DOCX, PDF com texto e TXT de até 10 MB. O documento é lido no navegador. A biblioteca Mammoth 1.10.0 lê o Word e PDF.js 4.10.38 lê o PDF; os recursos públicos são carregados sob demanda do jsDelivr com versões fixas e verificação de integridade. Não há envio do documento para uma API de IA. O texto é salvo no banco apenas quando o usuário salva ou finaliza a ata. O arquivo original não é arquivado por este importador.
+
+A identificação de ações usa tabelas e rótulos como Ação, Responsável e Prazo, além de listas de encaminhamentos. Nomes são vinculados somente a usuários cadastrados quando a correspondência é única; prazos sem ano, datas inválidas ou responsáveis ambíguos ficam para revisão. A prévia permite selecionar ações, acrescentar ou substituir o texto, cancelar sem alterar o formulário e evitar repetir ações já incluídas. PDFs digitalizados sem texto não são processados por OCR nesta versão. Limites: 100 páginas por PDF, 50.000 caracteres na ata e 100 ações por reunião.
