@@ -22,3 +22,10 @@ test('arquivos: codificações de texto, PDF em colunas e rejeição de DOCX inv
  context.utf8=new TextEncoder().encode('Reunião fiscal').buffer;assert.equal(get('decodeMeetingText(utf8)'),'Reunião fiscal');context.ansi=Uint8Array.from([82,101,117,110,105,227,111]).buffer;assert.equal(get('decodeMeetingText(ansi)'),'Reunião');context.bad=new Uint8Array(30).buffer;assert.throws(()=>get('validateMeetingDocx(bad)'),/DOCX/);
  context.items=[{str:'Responsável',transform:[1,0,0,1,300,700],width:70},{str:'Ação',transform:[1,0,0,1,40,700],width:30},{str:'Revisar',transform:[1,0,0,1,40,680],width:40}];assert.equal(get('meetingPdfPageText(items)'),'Ação | Responsável\nRevisar');
 });
+test('atas longas: partes preservam o texto completo, limites e ações no final',async()=>{
+ context.longText='Reunião: Ata longa\n'+('Discussão de acompanhamento fiscal.\n'.repeat(2100))+'\nAções\nAção: Conferir encerramento | Responsável: Marluza | Prazo: 09/11/2026';
+ const parts=get('splitMeetingImportText(longText)');assert.ok(parts.length>1);assert.equal(parts.join(''),context.longText);for(const part of parts)assert.ok(part.length<=45000);assert.equal(get("parseMeetingMinutes(splitMeetingImportText(longText).at(-1),users,'2026-11-03').actions.at(-1).owner"),'m');
+ const bytes=new TextEncoder().encode(context.longText);context.file={name:'ata-longa.txt',size:bytes.length,arrayBuffer:async()=>bytes.buffer};const result=await get('readMeetingFile(file)');assert.equal(result.text,context.longText.trim());
+ context.longText='😀'.repeat(50001);const unicode=get('splitMeetingImportText(longText)');assert.equal(unicode.join(''),context.longText);for(const part of unicode)assert.ok(!/[\uD800-\uDBFF]$/.test(part));
+ context.longText='x'.repeat(1000001);context.file={name:'grande.txt',size:1000001,arrayBuffer:async()=>new TextEncoder().encode(context.longText).buffer};await assert.rejects(()=>get('readMeetingFile(file)'),/1 milhão/);
+});
