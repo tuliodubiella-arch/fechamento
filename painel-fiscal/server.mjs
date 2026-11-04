@@ -1,3 +1,4 @@
+import {generateRecurrence} from './recurrence-server.mjs';
 import {handleMeetings} from './meetings-server.mjs';
 import http from 'node:http';
 import {handlePersonal} from './personal-server.mjs';
@@ -77,7 +78,7 @@ const server=http.createServer(async(req,res)=>{
  const b=await body(req);if(!text(b.title,150)||!['routine','project'].includes(b.type)||!dateValid(b.start)||!dateValid(b.end)||b.end<b.start||!db.users.some(u=>u.id===b.owner))return send(400,{error:'Revise o título, responsável e período de execução.'});const item={id:randomUUID(),type:b.type,title:text(b.title,150),description:text(b.description),owner:b.owner,start:b.start,end:b.end,frequency:['Diária','Semanal','Mensal','Única'].includes(b.frequency)?b.frequency:'Única',priority:['Baixa','Média','Alta'].includes(b.priority)?b.priority:'Média',status:'Planejada',activities:[],comments:[],executions:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1};if(b.groupId)setGroupRecord(db,item,b);db.items.push(item);event(user,'Criou',item);save();return send(201,{id:item.id});}
  const match=route.match(/^\/api\/items\/([^/]+)$/);if(match&&req.method==='PUT'){
  const b=await body(req);const item=db.items.find(i=>i.id===match[1]&&!i.deletedAt);if(!item)return send(404,{error:'Registro não encontrado ou já excluído.'});if(b.version!==item.version)return send(409,{error:'Outra pessoa atualizou este registro. Os dados foram recarregados; confira antes de repetir.'});
- const action=b.action;
+ const previous=structuredClone(item),eventsBefore=db.events.slice();const action=b.action;
  if(['record-edit','edit-activity','reorder-activities'].includes(action)&&!db.groups.some(g=>g.id===item.groupId&&!g.deletedAt))return send(400,{error:'Este registro não pertence a um grupo ativo.'});
  if(action==='delete-item'){
  if(user.role!=='admin')return send(403,{error:'Somente o administrador pode excluir rotinas e projetos.'});item.deletedAt=new Date().toISOString();item.deletedBy=user.id;event(user,item.type==='project'?'Excluiu o projeto':'Excluiu a rotina',item);
@@ -119,7 +120,7 @@ const server=http.createServer(async(req,res)=>{
  else if(action==='comment'&&text(b.text)){const attachments=storeAttachments(b.attachments);item.comments.push({id:randomUUID(),text:text(b.text),author:user.name,at:new Date().toISOString(),attachments});event(user,'Comentou',item);}
  else if(action==='execution'&&text(b.text)){const attachments=storeAttachments(b.attachments);item.executions.push({id:randomUUID(),text:text(b.text),author:user.name,at:new Date().toISOString(),attachments});event(user,'Registrou execução',item);}
  else if(action==='schedule'&&dateValid(b.start)&&dateValid(b.end)&&b.end>=b.start){item.start=b.start;item.end=b.end;event(user,'Atualizou o cronograma',item);}
- else return send(400,{error:'Revise os campos preenchidos.'});item.updatedAt=new Date().toISOString();item.version++;save();return send(200,{ok:true});}
+ else return send(400,{error:'Revise os campos preenchidos.'});try{generateRecurrence(db,item,previous,user,event);}catch(error){for(const key of Object.keys(item))delete item[key];Object.assign(item,previous);db.events=eventsBefore;throw error;}item.updatedAt=new Date().toISOString();item.version++;save();return send(200,{ok:true});}
  send(404,{error:'Recurso não encontrado.'});
  }catch(e){send(e.status||400,{error:e instanceof SyntaxError?'Dados inválidos.':e.status?e.message:'Não foi possível concluir a operação.'});}
 });
