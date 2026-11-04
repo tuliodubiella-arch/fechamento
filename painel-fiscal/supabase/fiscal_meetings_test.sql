@@ -1,0 +1,33 @@
+begin;
+do $$
+declare administrator uuid; member_id uuid; mid uuid; draft jsonb; action_id uuid:=gen_random_uuid(); body jsonb; result jsonb; routine uuid; count_before integer; failed boolean; version integer;
+begin
+ select id into administrator from public.fs_members where active and role='admin' limit 1;
+ select id into member_id from public.fs_members where active and role='member' limit 1;
+ perform set_config('request.jwt.claim.sub',administrator::text,true);
+ if has_table_privilege('anon','public.fs_meetings','SELECT') or has_table_privilege('authenticated','public.fs_meetings','UPDATE') or has_function_privilege('anon','public.fs_save_meeting(uuid,jsonb)','EXECUTE') then raise exception 'Permissões indevidas.';end if;
+ body:=jsonb_build_object('title','Reunião transacional','date','2026-11-03','topics','Pauta','minutes','Ata digitada','summary','Resumo','decisions','Decisão','attendees',jsonb_build_array(administrator,member_id),'actions',jsonb_build_array(jsonb_build_object('id',action_id,'title','Conferir apuração','description','Ação discutida','owner',member_id,'start','2026-11-03','end','2026-11-05','priority','Alta')),'action','save','status','Finalizada');
+ select count(*) into count_before from public.fs_items;
+ mid:=(public.fs_save_meeting(null,body)->>'id')::uuid;
+ select data,fs_meetings.version into draft,version from public.fs_meetings where id=mid;
+ if draft->>'status'<>'Rascunho' or exists(select 1 from public.fs_items where data->>'meetingId'=mid::text) then raise exception 'Rascunho criou tarefas indevidas.';end if;
+ perform set_config('request.jwt.claim.sub',member_id::text,true);
+ if not exists(select 1 from jsonb_array_elements(public.fs_get_meetings()) m where m->>'id'=mid::text) then raise exception 'Equipe não vê a reunião.';end if;
+ failed:=false;begin perform public.fs_save_meeting(mid,body||jsonb_build_object('action','finalize','version',version-1));exception when others then failed:=true;end;if not failed then raise exception 'Conflito ignorado.';end if;
+ failed:=false;begin perform public.fs_save_meeting(mid,body||jsonb_build_object('action','finalize','version',version,'actions',(body->'actions')||jsonb_build_array(jsonb_build_object('id',gen_random_uuid(),'title','Sem responsável','start','2026-11-03','end','2026-11-04'))));exception when others then failed:=true;end;if not failed then raise exception 'Ação sem responsável aceita.';end if;
+ if (select count(*) from public.fs_items)<>count_before then raise exception 'Falha criou rotinas parciais.';end if;
+ result:=public.fs_save_meeting(mid,body||jsonb_build_object('action','finalize','version',version));
+ if (result->>'created')::integer<>1 then raise exception 'Contagem inválida.';end if;
+ select (data->'actions'->0->>'routineId')::uuid into routine from public.fs_meetings where id=mid;
+ if not exists(select 1 from public.fs_items where id=routine and data->>'type'='routine' and data->>'owner'=member_id::text and data->>'end'='2026-11-05' and data->>'meetingId'=mid::text and data->>'meetingActionId'=action_id::text) then raise exception 'Rotina não foi vinculada corretamente.';end if;
+ perform public.fs_save_meeting(mid,body||jsonb_build_object('action','finalize','version',version));
+ if (select count(*) from public.fs_items)<>count_before+1 then raise exception 'Finalização duplicou tarefas.';end if;
+ select fs_meetings.version into version from public.fs_meetings where id=mid;
+ failed:=false;begin perform public.fs_save_meeting(mid,body||jsonb_build_object('action','save','version',version));exception when others then failed:=true;end;if not failed then raise exception 'Ata finalizada reescrita.';end if;
+ perform public.fs_save_meeting(mid,jsonb_build_object('action','comment','version',version,'text','Acompanhamento posterior'));
+ if (select data->'comments'->0->>'author' from public.fs_meetings where id=mid) is distinct from (select name from public.fs_members where id=member_id) then raise exception 'Autor do acompanhamento incorreto.';end if;
+ perform set_config('request.jwt.claim.sub','',true);
+ failed:=false;begin perform public.fs_get_meetings();exception when others then failed:=true;end;if not failed then raise exception 'Sem login consultou atas.';end if;
+ failed:=false;begin perform public.fs_save_meeting(null,body);exception when others then failed:=true;end;if not failed then raise exception 'Sem login criou reunião.';end if;
+end;$$;
+rollback;

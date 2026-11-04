@@ -33,3 +33,12 @@ O plano gratuito tem cotas compartilhadas com os demais aplicativos no mesmo pro
 npm test verifica o modo local e o adaptador do Supabase. supabase/fiscal_smoke_test.sql testa as operações reais do banco em uma transação que é revertida, sem deixar registros de teste. As verificações de publicação incluem respostas do servidor, recursos da página, login e layout em computador e celular.
 
 Os arquivos Node.js e Docker continuam disponíveis para teste local ou outra hospedagem, mas não são necessários para executar a versão do GitHub Pages.
+
+
+## Reuniões de rotina e convites
+
+A primeira versão usa atas digitadas, conforme a escolha do grupo. Pauta, ata, resumo, decisões e ações são preenchidos pela equipe. Ao finalizar, todas as ações com responsável, início e prazo viram rotinas únicas, vinculadas à reunião. Rascunhos não criam rotinas. A finalização é atômica e idempotente; a ata finalizada mantém acompanhamentos posteriores. As atas compartilhadas estão em `fs_meetings`, protegidas pela participação ativa na equipe.
+
+Aplicar `supabase/fiscal_meetings.sql` uma única vez e implantar `supabase/functions/fiscal-invite-member/index.ts`. A função verifica a identidade no Supabase Auth e o perfil de administrador do fiscal a cada chamada. Não usa chave de serviço no navegador. O envio utiliza o serviço de e-mail já configurado no Supabase. Em Authentication > URL Configuration, manter o endereço https://tuliodubiella-arch.github.io/fechamento/painel-fiscal/ autorizado nos redirecionamentos. Contas novas recebem convite para definir a senha. Contas existentes recebem um link de acesso e mantêm a senha atual. A tela Equipe mantém o cadastro direto como alternativa.
+
+Os testes de e-mail usam um transporte simulado e não disparam convites reais. O envio real depende da configuração e das cotas do provedor de e-mail do projeto.
