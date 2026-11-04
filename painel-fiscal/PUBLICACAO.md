@@ -59,3 +59,8 @@ Aplicar supabase/fiscal_full_meetings_recurrence.sql após os scripts existentes
 As datas avançam a partir do cronograma da ocorrência concluída: um dia, sete dias ou um mês. A recorrência mensal preserva os dias de referência e ajusta os meses curtos, voltando ao dia original no mês seguinte. Alterar as datas redefine a referência para as próximas ocorrências. Períodos vencidos continuam seguindo a sequência do cronograma; o usuário pode ajustar as datas na próxima rotina.
 
 A próxima ocorrência conserva título, descrição, responsável, prioridade, empresa, grupo e ordem do checklist. O checklist recebe novos identificadores e volta a ficar pendente; comentários, execuções, anexos, protocolo e delegações temporárias permanecem no histórico anterior. Em grupos, a nova ocorrência volta à primeira etapa que não esteja concluída. O teste SQL é transacional e termina com rollback, sem manter registros fictícios.
+
+
+## Edição das etapas dos grupos
+
+Todos os membros ativos podem usar Editar etapas no grupo para renomear, adicionar, reordenar e remover etapas vazias. A configuração aceita de 2 a 20 etapas, com pelo menos uma aberta e uma concluída. Os identificadores das etapas existentes e os vínculos dos registros são preservados. O status pode ser ajustado e é sincronizado nos registros afetados. Não é permitido transformar uma etapa ocupada e pendente em concluída em lote: a conclusão é individual, preservando o fluxo de recorrência. As alterações são registradas no histórico. Aplicar supabase/fiscal_group_stages.sql após os scripts anteriores. O teste SQL termina com rollback.

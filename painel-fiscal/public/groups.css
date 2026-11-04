@@ -4,3 +4,4 @@
 .drag-grip{user-select:none}
 
 .drag-grip{touch-action:none;display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:36px}
+.group-stage-row{padding:16px;border:1px solid var(--line);border-radius:8px;margin:0 0 14px;background:#fff}.group-stage-fields{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}.group-stage-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.group-stage-controls small{margin-right:auto;color:var(--muted)}.group-stage-controls button:disabled{opacity:.4;cursor:default}@media(max-width:600px){.group-stage-fields{grid-template-columns:1fr;gap:0}.group-stage-row{padding:12px}}

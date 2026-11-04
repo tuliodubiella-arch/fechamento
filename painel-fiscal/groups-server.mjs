@@ -22,6 +22,11 @@ export async function handleGroups(route,req,{db,user,body,send,save,event}){
  if(b.action==='delete-group'){
  if(user.role!=='admin')fail('Somente o administrador pode excluir grupos.',403);
  const records=db.items.filter(i=>i.groupId===group.id&&!i.deletedAt),at=new Date().toISOString();group.deletedAt=at;group.deletedBy=user.id;for(const i of records){i.deletedAt=at;i.deletedBy=user.id;i.version++;}event(user,'Excluiu grupo e '+records.length+' registros',group);
+ }else if(b.action==='edit-stages'){
+ const stages=b.stages;if(!Array.isArray(stages)||stages.length<2||stages.length>20||stages.some(s=>typeof s.name!=='string'||!s.name.trim()||s.name.trim().length>60||!statuses.includes(s.status)))fail('Use de 2 a 20 etapas com nome e status válidos.');
+ const next=stages.map(s=>{const old=s.id?group.stages.find(e=>e.id===s.id):null;if(s.id&&!old)fail('Etapa não pertence ao grupo.');const id=s.id||randomUUID();if(s.status==='Concluída'&&old?.status!=='Concluída'&&db.items.some(i=>!i.deletedAt&&i.groupId===group.id&&i.stageId===id))fail('Conclua os registros individualmente antes de transformar esta etapa em concluída.');return {id,name:s.name.trim(),status:s.status};});
+ if(new Set(next.map(s=>s.id)).size!==next.length||new Set(next.map(s=>s.name.toLocaleLowerCase('pt-BR'))).size!==next.length)fail('Use etapas e nomes diferentes.');if(!next.some(s=>s.status==='Concluída')||!next.some(s=>s.status!=='Concluída'))fail('Mantenha uma etapa aberta e uma etapa concluída.');
+ const records=db.items.filter(i=>!i.deletedAt&&i.groupId===group.id);if(records.some(i=>!next.some(s=>s.id===i.stageId)))fail('Mova os registros antes de remover uma etapa ocupada.');group.stages=next;let affected=0;for(const item of records){const stage=next.find(s=>s.id===item.stageId);if(item.status!==stage.status){item.status=stage.status;item.updatedAt=new Date().toISOString();item.version++;affected++;}}event(user,'Editou as etapas do grupo; atualizou o status de '+affected+' registros',group);
  }else if(b.action==='update-group'){
  if(!text(b.title,150)||!db.users.some(u=>u.id===b.owner))fail('Revise nome e responsável.');group.title=text(b.title,150);group.description=text(b.description);group.owner=b.owner;event(user,'Atualizou grupo',group);
  }else if(b.action==='reorder-records'){
