@@ -42,6 +42,17 @@ if(window.FISCAL_CLOUD){
  if(route==='meetings')return method==='GET'?rpc('fs_get_meetings'):rpc('fs_save_meeting',{p_id:null,p_payload:body});
  if(route.startsWith('meetings/'))return rpc('fs_save_meeting',{p_id:route.slice(9),p_payload:body});
  if(route==='invitations'||route==='invitations/status')return request('/functions/v1/fiscal-invite-member','POST',{...body,...(route.endsWith('/status')?{action:'status'}:{})});
+ if(route==='first-access-send'){
+ const email=String(body.email||'').trim().toLowerCase();if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Informe um e-mail válido.');
+ await auth('otp?redirect_to='+encodeURIComponent('https://tuliodubiella-arch.github.io/fechamento/painel-fiscal/'),{email,create_user:false});return {ok:true};
+ }
+ if(route==='first-access-verify'){
+ const email=String(body.email||'').trim().toLowerCase(),value=String(body.verification||'').trim();let payload;
+ if(/^[0-9]{6,10}$/.test(value)){if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Informe o e-mail que recebeu o código.');payload={email,token:value,type:'email'};}
+ else{let link;try{link=new URL(value);for(let n=0;n<3&&(/(^|\.)safelinks\.protection\.outlook\.com$/i.test(link.hostname));n++){const inner=link.searchParams.get('url');if(!inner)break;link=new URL(inner);}}catch{throw Error('Cole o link completo do botão do e-mail ou o código recebido.');}
+ if(link.origin!==new URL(config.url).origin||link.pathname!=='/auth/v1/verify')throw Error('Use somente o link de acesso enviado por este painel.');const type=link.searchParams.get('type'),hash=link.searchParams.get('token_hash')||link.searchParams.get('token');if(!hash||!['invite','magiclink','recovery','email','signup'].includes(type))throw Error('O link não contém uma confirmação válida.');payload={token_hash:hash,type};}
+ await auth('verify',payload);const pending=await rpc('fs_requires_password_setup');if(typeof pending!=='boolean')throw Error('Não foi possível verificar o primeiro acesso. Tente novamente.');save({...session,password_setup_pending:pending});return {requiresPassword:pending};
+ }
  if(route==='account-password'){if(typeof body.password!=='string'||body.password.length<10||body.password.length>128)throw Error('Use uma senha de 10 a 128 caracteres.');const updated=await request('/auth/v1/user','PUT',{password:body.password});save({...session,password_setup_pending:false});return updated;}
  if(route==='users')return request('/functions/v1/fiscal-create-member','POST',body);
  if(route==='groups')return rpc('fs_create_group',{p_payload:body});

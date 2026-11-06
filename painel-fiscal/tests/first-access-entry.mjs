@@ -1,0 +1,24 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+const code=await readFile('public/cloud-api.js','utf8');
+function fixture(){const calls=[],saved=new Map();let pending=true;const ctx=vm.createContext({URL,URLSearchParams,window:{FISCAL_CLOUD:{url:'https://test.supabase.co',key:'public-test'}},localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)},fetch:async(url,options)=>{calls.push({url,...options});return {status:200,ok:true,json:async()=>url.endsWith('fs_requires_password_setup')?pending:url.endsWith('/verify')?{access_token:'verified-test',refresh_token:'refresh-test',expires_in:3600}:{} };}});vm.runInContext(code,ctx);return {api:ctx.window.FiscalCloud.api,calls,saved,setPending:v=>pending=v};}
+test('primeiro acesso: confirma por link sem redirecionamento, mantém conta e valida o estado no servidor',async()=>{
+ const f=fixture();await f.api('first-access-send','POST',{email:'pessoa@example.test'});assert.equal(JSON.parse(f.calls[0].body).create_user,false);assert.ok(f.calls[0].url.includes('/otp?redirect_to='));
+ const result=await f.api('first-access-verify','POST',{email:'pessoa@example.test',verification:'https://test.supabase.co/auth/v1/verify?token=hash-ficticio&type=magiclink'});assert.equal(result.requiresPassword,true);const verify=f.calls.find(c=>c.url.endsWith('/verify'));assert.deepEqual(JSON.parse(verify.body),{token_hash:'hash-ficticio',type:'magiclink'});assert.ok(f.calls.some(c=>c.url.endsWith('fs_requires_password_setup')&&c.headers.Authorization==='Bearer verified-test'));assert.equal(JSON.parse([...f.saved.values()][0]).password_setup_pending,true);
+ f.setPending(false);const existing=await f.api('first-access-verify','POST',{email:'pessoa@example.test',verification:'123456'});assert.equal(existing.requiresPassword,false);assert.equal(JSON.parse(f.calls.findLast(c=>c.url.endsWith('/verify')).body).type,'email');assert.ok(!f.calls.some(c=>c.method==='PUT'));
+});
+test('primeiro acesso: recusa links de outros servidores e aceita o invólucro do Outlook',async()=>{
+ const f=fixture();await assert.rejects(()=>f.api('first-access-verify','POST',{verification:'https://attacker.example/auth/v1/verify?token=abc&type=invite'}));await assert.rejects(()=>f.api('first-access-verify','POST',{verification:'https://test.supabase.co/auth/v1/verify?type=invite'}));assert.equal(f.calls.length,0);
+ const inner='https://test.supabase.co/auth/v1/verify?token=hash-ficticio&type=invite';const outer='https://nam10.safelinks.protection.outlook.com/?url='+encodeURIComponent(inner);assert.equal((await f.api('first-access-verify','POST',{verification:outer})).requiresPassword,true);
+});
+test('primeiro acesso: opção visível no login e formulário sem senha anterior',async()=>{
+ const elements=new Map(),get=s=>{if(!elements.has(s))elements.set(s,{innerHTML:'',addEventListener(){},querySelector(){return {}},querySelectorAll(){return []}});return elements.get(s);};const ctx=vm.createContext({window:{FiscalCloud:{}},document:{querySelector:get},console});
+ vm.runInContext(await readFile('public/team.js','utf8'),ctx);vm.runInContext((await readFile('public/app.js','utf8')).replace('boot();',''),ctx);vm.runInContext('login(false)',ctx);assert.ok(get('#app').innerHTML.includes('Primeiro acesso / definir senha'));vm.runInContext('firstAccessEntry()',ctx);assert.ok(get('#app').innerHTML.includes('Receber confirmação por e-mail'));assert.ok(!get('#app').innerHTML.includes('name="password"'));vm.runInContext("firstAccessEntry('pessoa@example.test',true)",ctx);assert.ok(get('#app').innerHTML.includes('Link ou código recebido'));
+});
+test('primeiro acesso: link direto abre formulário mesmo sem sessão e sessão pendente abre nova senha',async()=>{
+ const nodes=new Map(),get=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',addEventListener(){},querySelector(){return {}},querySelectorAll(){return []}});return nodes.get(s);};let cleaned='';const window={location:{search:'?primeiro-acesso=1',pathname:'/fechamento/painel-fiscal/'},history:{replaceState(a,b,path){cleaned=path;}},FiscalCloud:{consumeAuthLink:async()=>null,api:async()=>{throw Error('Não deveria consultar login antes da primeira opção');}}};
+ const ctx=vm.createContext({window,document:{querySelector:get},URLSearchParams});vm.runInContext(await readFile('public/team.js','utf8'),ctx);vm.runInContext((await readFile('public/app.js','utf8')).replace('boot();',''),ctx);await vm.runInContext('boot()',ctx);assert.ok(get('#app').innerHTML.includes('Definir minha senha'));assert.equal(cleaned,'/fechamento/painel-fiscal/');
+ window.FiscalCloud.consumeAuthLink=async()=> 'invite';await vm.runInContext('boot()',ctx);assert.ok(get('#app').innerHTML.includes('Defina sua senha'));assert.ok(get('#app').innerHTML.includes('autocomplete="new-password"'));
+});
