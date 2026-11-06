@@ -72,3 +72,8 @@ Aplicar supabase/fiscal_invitation_onboarding.sql e atualizar fiscal-invite-memb
 
 
 O login oferece Primeiro acesso / definir senha e a URL ?primeiro-acesso=1 abre o fluxo diretamente. Uma sessão pendente pode ser retomada, ou a pessoa pode solicitar confirmação ao próprio e-mail já cadastrado (create_user=false). O campo aceita o código, se presente no modelo de e-mail, ou o link completo do botão, inclusive envolvido pelo Safe Links do Outlook. Links são validados contra a origem exata do Supabase deste projeto e trocados por sessão no próprio painel, sem depender de redirecionamento. O link não é armazenado. A necessidade de criar senha é consultada no servidor após a confirmação; contas com senha já concluída mantêm seu acesso. Testes não enviam mensagens reais.
+
+
+## Meu Painel com rotinas atribuídas
+
+Meu Painel reúne as atividades pessoais do usuário e as rotinas compartilhadas cujo responsável seja o usuário conectado, inclusive registros dentro de grupos e novas ocorrências recorrentes. Os cartões distinguem Privada e Compartilhada, e o filtro de origem permite visualizar as duas ou apenas uma categoria. Busca, status, datas e contadores usam a visão reunida. Abrir uma rotina compartilhada usa o mesmo identificador e as mesmas ações da equipe, sem copiar registros nem expor anotações pessoais. Projetos e rotinas atribuídas a outras pessoas não entram nessa visão. A privacidade e as permissões existentes do servidor permanecem aplicáveis.
