@@ -5,14 +5,32 @@ if(window.FISCAL_CLOUD){
  let refreshing;
  const save=value=>{session=value;if(value)localStorage.setItem(sessionKey,JSON.stringify(value));else localStorage.removeItem(sessionKey);};
  function failure(status,message){return Object.assign(Error(message),{status});}
- async function auth(path,payload){const r=await fetch(config.url+'/auth/v1/'+path,{method:'POST',headers:{apikey:config.key,'Content-Type':'application/json'},body:JSON.stringify(payload)});const b=await r.json();if(!r.ok)throw failure(r.status,b.error_description||b.msg||b.message||'Não foi possível entrar.');if(b.access_token)save({...b,expires_at:Math.floor(Date.now()/1000)+b.expires_in});return b;}
- async function token(){if(!session)throw failure(401,'Entre com sua conta para continuar.');if(session.expires_at<Date.now()/1000+60){if(!refreshing)refreshing=auth('token?grant_type=refresh_token',{refresh_token:session.refresh_token}).catch(e=>{save(null);throw e;}).finally(()=>refreshing=null);await refreshing;}return session.access_token;}
+ async function auth(path,payload){const r=await fetch(config.url+'/auth/v1/'+path,{method:'POST',headers:{apikey:config.key,'Content-Type':'application/json'},body:JSON.stringify(payload)});const b=await r.json();if(!r.ok)throw failure(r.status,b.error_description||b.msg||b.message||'Não foi possível entrar.');if(b.access_token)save({...b,password_setup_pending:path==='token?grant_type=refresh_token'&&!!session?.password_setup_pending,expires_at:Math.floor(Date.now()/1000)+b.expires_in});return b;}
+ async function token(){if(!session)throw failure(401,'Entre com sua conta para continuar.');if(session.expires_at<Date.now()/1000+60){if(!refreshing)refreshing=auth('token?grant_type=refresh_token',{refresh_token:session.refresh_token}).catch(e=>{if(e.status===400||e.status===401||e.status===403)save(null);throw e;}).finally(()=>refreshing=null);await refreshing;}return session.access_token;}
  async function request(path,method='GET',body,binary){const access=await token();const r=await fetch(config.url+path,{method,headers:{apikey:config.key,Authorization:'Bearer '+access,...(binary?{'Content-Type':binary}:{'Content-Type':'application/json'})},body:body===undefined?undefined:binary?body:JSON.stringify(body)});const b=r.status===204?{}:await r.json();if(!r.ok){if(r.status===401)save(null);throw failure(r.status,b.message||b.error||'Não foi possível concluir.');}return b;}
  const rpc=(name,payload={})=>request('/rest/v1/rpc/'+name,'POST',payload);
  async function signed(state){const rows=state.items.flatMap(i=>[...i.comments,...i.executions,...(i.delegations||[])]);const paths=[...new Set(rows.flatMap(n=>(n.attachments||[]).map(a=>a.path)).filter(Boolean))];if(!paths.length)return state;const links=await request('/storage/v1/object/sign/fiscal-prints','POST',{paths,expiresIn:3600});const urls=new Map(links.map(a=>[a.path,a.signedURL||a.signedUrl]));for(const row of rows)for(const a of row.attachments||[]){const link=urls.get(a.path);if(link)a.url=link.startsWith('https://')?link:config.url+'/storage/v1'+(link.startsWith('/')?link:'/'+link);}return state;}
  async function uploads(itemId,images){const staged=[];try{if(images.length>3)throw Error('Anexe até 3 arquivos.');for(const image of images){if(!['image/png','image/jpeg','image/webp','application/pdf','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(image.type))throw Error('Use imagens, Excel (XLS/XLSX), Word (DOC/DOCX) ou PDF.');const raw=atob(image.data),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));if(!bytes.length||bytes.length>5*1024*1024)throw Error('Cada arquivo deve ter no máximo 5 MB.');const meta=await rpc('fs_prepare_attachment',{p_item:itemId,p_name:image.name,p_type:image.type,p_size:bytes.length});staged.push(meta);await request('/storage/v1/object/fiscal-prints/'+meta.path,'POST',bytes,image.type);}return staged;}catch(e){await cleanup(staged);throw e;}}
  async function cleanup(images){for(const image of images){try{await request('/storage/v1/object/fiscal-prints','DELETE',{prefixes:[image.path]});await rpc('fs_discard_attachment',{p_id:image.id});}catch{}}}
- window.FiscalCloud={async consumeAuthLink(){const hash=new URLSearchParams(window.location?.hash?.slice(1)||'');const type=hash.get('type');if(!['invite','magiclink'].includes(type)||!hash.get('access_token')||!hash.get('refresh_token'))return null;const life=Number(hash.get('expires_in'))||3600;const candidate={access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_at:Math.floor(Date.now()/1000)+Math.min(Math.max(life,300),86400)};window.history.replaceState(null,'',window.location.pathname+window.location.search);save(candidate);try{const user=await request('/auth/v1/user');if(!user.id)throw Error('Link inválido. Solicite um novo convite.');return type;}catch(e){save(null);throw e;}},async api(route,method='GET',body={}){
+ window.FiscalCloud={async consumeAuthLink(){
+ const hash=new URLSearchParams(window.location?.hash?.slice(1)||''),type=hash.get('type');
+ const clean=()=>window.history.replaceState(null,'',window.location.pathname+window.location.search);
+ if(hash.has('error')||hash.has('error_code')){clean();save(null);throw failure(401,'O link expirou ou já foi utilizado. Solicite um novo convite ao administrador.');}
+ const received=['invite','magiclink','recovery'].includes(type);
+ if(received){
+  if(!hash.get('access_token')||!hash.get('refresh_token')){clean();throw failure(401,'Link incompleto. Solicite um novo convite.');}
+  const life=Number(hash.get('expires_in'))||3600,candidate={access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_at:Math.floor(Date.now()/1000)+Math.min(Math.max(life,300),86400),password_setup_pending:type==='invite'||type==='recovery'};
+  save(candidate);clean();
+ }
+ if(!session)return null;
+ try{
+  if(received||session.password_setup_pending){const user=await request('/auth/v1/user');if(!user.id)throw failure(401,'Sessão inválida. Solicite um novo convite.');}
+  const pending=await rpc('fs_requires_password_setup');
+  if(typeof pending!=='boolean')throw Error('Não foi possível verificar o primeiro acesso. Atualize a página para tentar novamente.');
+  if(pending||session.password_setup_pending)return 'invite';
+  return received?type:null;
+ }catch(e){if(e.status===401||e.status===403)save(null);throw e;}
+},async api(route,method='GET',body={}){
  if(route==='setup')return {required:false};
  if(route==='login'){await auth('token?grant_type=password',{email:body.email,password:body.password});return {};}
  if(route==='logout'){try{await request('/auth/v1/logout','POST',{});}finally{save(null);}return {};}
@@ -24,7 +42,7 @@ if(window.FISCAL_CLOUD){
  if(route==='meetings')return method==='GET'?rpc('fs_get_meetings'):rpc('fs_save_meeting',{p_id:null,p_payload:body});
  if(route.startsWith('meetings/'))return rpc('fs_save_meeting',{p_id:route.slice(9),p_payload:body});
  if(route==='invitations'||route==='invitations/status')return request('/functions/v1/fiscal-invite-member','POST',{...body,...(route.endsWith('/status')?{action:'status'}:{})});
- if(route==='account-password'){if(typeof body.password!=='string'||body.password.length<10||body.password.length>128)throw Error('Use uma senha de 10 a 128 caracteres.');return request('/auth/v1/user','PUT',{password:body.password});}
+ if(route==='account-password'){if(typeof body.password!=='string'||body.password.length<10||body.password.length>128)throw Error('Use uma senha de 10 a 128 caracteres.');const updated=await request('/auth/v1/user','PUT',{password:body.password});save({...session,password_setup_pending:false});return updated;}
  if(route==='users')return request('/functions/v1/fiscal-create-member','POST',body);
  if(route==='groups')return rpc('fs_create_group',{p_payload:body});
  if(route.startsWith('groups/'))return rpc(body.action==='edit-stages'?'fs_edit_group_stages':'fs_update_group',{p_id:route.slice(7),p_payload:body});

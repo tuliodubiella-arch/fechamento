@@ -14,8 +14,8 @@ export function inviteHandler(env:(key:string)=>string|undefined,fetcher:typeof 
    const caller=await request('/rest/v1/fs_members?select=role,active,name&id=eq.'+encodeURIComponent(identity.data.id));const member=caller.data?.[0];if(!caller.ok||!member?.active||member.role!=='admin')return reply(403,{error:'Somente o administrador pode convidar pessoas.'});
    const raw=await req.text();if(raw.length>10000)return reply(413,{error:'Dados muito grandes.'});const b=JSON.parse(raw||'{}');
    if(b.action==='status'){
-    const team=await request('/rest/v1/fs_members?select=id,email&active=eq.true');if(!team.ok)throw Error('team');const pending=[];
-    for(const person of team.data){const account=await request('/auth/v1/admin/users/'+encodeURIComponent(person.id));if(!account.ok)continue;const u=account.data.user||account.data;if(u.invited_at&&!u.email_confirmed_at&&!u.confirmed_at&&!u.last_sign_in_at)pending.push({id:person.id,sentAt:u.confirmation_sent_at||u.invited_at});}
+    const team=await request('/rest/v1/fs_members?select=id,email&active=eq.true');if(!team.ok)throw Error('team');const setup=await request('/rest/v1/fs_password_onboarding?select=user_id&required=eq.true');if(!setup.ok)throw Error('onboarding');const needsPassword=new Set(setup.data.map((p:{user_id:string})=>p.user_id));const pending=[];
+    for(const person of team.data){const account=await request('/auth/v1/admin/users/'+encodeURIComponent(person.id));if(!account.ok)continue;const u=account.data.user||account.data;if(needsPassword.has(person.id)||(u.invited_at&&!u.email_confirmed_at&&!u.confirmed_at&&!u.last_sign_in_at))pending.push({id:person.id,sentAt:u.confirmation_sent_at||u.invited_at});}
     return reply(200,{pending});
    }
    let email=String(b.email||'').trim().toLowerCase(),name=String(b.name||'').trim(),id:string|undefined,account:any;
@@ -29,10 +29,10 @@ export function inviteHandler(env:(key:string)=>string|undefined,fetcher:typeof 
     const found=await request('/rest/v1/rpc/fs_find_auth_user','POST',{p_email:email});if(!found.ok)throw Error('lookup');id=found.data||undefined;
    }
    if(id){const result=await request('/auth/v1/admin/users/'+encodeURIComponent(id));if(!result.ok)throw Error('user');account=result.data.user||result.data;}
-   const pending=account?.invited_at&&!account.email_confirmed_at&&!account.confirmed_at&&!account.last_sign_in_at;
+   const awaitingInvite=account?.invited_at&&!account.email_confirmed_at&&!account.confirmed_at&&!account.last_sign_in_at;let setupPending=false;if(id){const setup=await request('/rest/v1/fs_password_onboarding?select=user_id&required=eq.true&user_id=eq.'+encodeURIComponent(id));if(!setup.ok)throw Error('onboarding');setupPending=setup.data.length>0;}const pending=awaitingInvite||setupPending;
    if(b.action==='resend'&&!pending)return reply(409,{error:'Esta pessoa já acessou a plataforma e não tem convite pendente.'});
    const sentAt=account?.confirmation_sent_at||account?.invited_at;if(pending&&sentAt&&Date.now()-Date.parse(sentAt)<60000)return reply(429,{error:'Aguarde um minuto antes de reenviar o convite.'});
-   const confirmed=!!account&&!pending;
+   const confirmed=!!account&&!awaitingInvite;
    const sent=confirmed?await request('/auth/v1/otp?redirect_to='+encodeURIComponent(redirectTo),'POST',{email,create_user:false},publicKey,publicKey):await request('/auth/v1/invite?redirect_to='+encodeURIComponent(redirectTo),'POST',{email,data:{name,full_name:name}});
    if(!sent.ok)return reply(sent.status===429?429:400,{error:sent.status===429?'Limite de envio atingido. Aguarde antes de tentar novamente.':'O serviço de e-mail não enviou o convite. Confira o endereço e a configuração de e-mail do Supabase.'});
    id=id||sent.data.user?.id||sent.data.id;if(!id)throw Error('id');

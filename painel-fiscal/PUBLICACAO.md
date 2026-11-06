@@ -64,3 +64,8 @@ A próxima ocorrência conserva título, descrição, responsável, prioridade, 
 ## Edição das etapas dos grupos
 
 Todos os membros ativos podem usar Editar etapas no grupo para renomear, adicionar, reordenar e remover etapas vazias. A configuração aceita de 2 a 20 etapas, com pelo menos uma aberta e uma concluída. Os identificadores das etapas existentes e os vínculos dos registros são preservados. O status pode ser ajustado e é sincronizado nos registros afetados. Não é permitido transformar uma etapa ocupada e pendente em concluída em lote: a conclusão é individual, preservando o fluxo de recorrência. As alterações são registradas no histórico. Aplicar supabase/fiscal_group_stages.sql após os scripts anteriores. O teste SQL termina com rollback.
+
+
+## Retomada do primeiro acesso por convite
+
+Aplicar supabase/fiscal_invitation_onboarding.sql e atualizar fiscal-invite-member. A etapa de senha dos convidados novos é registrada no servidor, isolada da URL descartável do convite. O aceite do convite e a senha técnica gerada pelo Auth não concluem o cadastro. Uma alteração real de senha após a confirmação do e-mail marca a etapa como concluída por um gatilho. A página retoma a definição da senha após recarregar e mantém o marcador local durante renovação da sessão e falhas de rede. Contas já existentes preservam sua senha. O reenvio de quem já aceitou mas ainda não definiu a senha utiliza um link de acesso, mantendo a mesma conta. A consulta de estado é restrita ao próprio membro ativo; a tabela não permite acesso direto de clientes. Testes usam contas fictícias, chamadas simuladas e rollback, sem enviar e-mails ou alterar senhas reais.
