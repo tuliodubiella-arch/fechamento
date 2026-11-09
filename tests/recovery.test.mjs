@@ -144,3 +144,35 @@ test("PAUSE repetido oferece retirada pontual e bloqueia sincronização da fila
   assert.match(html, /Retirar PAUSE repetido/);
   assert.match(html, /disabled>Sincronizar após revisão/);
 });
+
+const stalePair = [
+  { kind: "rpc", name: "fc_apply_activity", args: { p_event_id: "33333333-3333-4333-8333-333333333333", p_task_id: "task-26145", p_competence: "2026-10", p_action: "pause", p_occurred_at: "2026-11-03T13:59:52Z" } },
+  { kind: "rpc", name: "fc_apply_activity", args: { p_event_id: "44444444-4444-4444-8444-444444444444", p_task_id: "task-26145", p_competence: "2026-10", p_action: "stop", p_occurred_at: "2026-11-03T13:59:54Z" } },
+];
+
+test("par anterior à limpeza só sai após confirmação auditada do servidor", async () => {
+  const { context, storage, calls, userId } = setup(stalePair, { rpc: () => ({ data: true, error: null }) });
+  vm.runInContext("function pendingDescription(item) { return { action: item.args.p_action.toUpperCase(), target: 'INTEGRAÇÃO FATURAMENTO 2Q', time: item.args.p_occurred_at }; } state.recoveryHold = true; state.recoveryBackupRequested = true; state.recoveryBackupConfirmed = true;", context);
+  await vm.runInContext("skipStaleResetPair()", context);
+  assert.deepEqual(calls, [["rpc", "fc_skip_stale_reset_pair", undefined]]);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 0);
+  assert.equal(storage.has(`fc_recovery_hold_${userId}`), false);
+});
+
+test("falha ao auditar preserva os dois apontamentos locais", async () => {
+  const { context, storage, userId } = setup(stalePair, { rpc: () => ({ error: { message: "A rotina não corresponde à execução anulada" } }) });
+  vm.runInContext("function pendingDescription(item) { return { action: item.args.p_action.toUpperCase(), target: 'INTEGRAÇÃO FATURAMENTO 2Q', time: item.args.p_occurred_at }; } state.recoveryHold = true; state.recoveryBackupRequested = true; state.recoveryBackupConfirmed = true;", context);
+  await vm.runInContext("skipStaleResetPair()", context);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 2);
+  assert.equal(vm.runInContext("state.recoveryHold", context), true);
+});
+
+test("revisão oferece retirada do par antigo e impede reenvio direto", () => {
+  const { context } = setup(stalePair);
+  vm.runInContext(`function pendingDescription${recoveryUiSource}`, context);
+  vm.runInContext("state.recoveryHold = true; state.syncError = 'A rotina não está em andamento'; state.recoveryBackupConfirmed = true;", context);
+  const html = vm.runInContext("renderRecoveryPanel()", context);
+  assert.match(html, /Retirar PAUSE\/STOP antigos/);
+  assert.doesNotMatch(html, /Retirar PAUSE repetido/);
+  assert.match(html, /disabled>Sincronizar após revisão/);
+});

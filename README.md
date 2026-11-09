@@ -47,6 +47,8 @@ Na versão `2026.10.23.1`, a edição online do **Controle de erros** só inform
 
 Na versão `2026.10.23.2`, o botão **Salvar erro** volta a interceptar o envio do formulário. O campo interno de identificação tinha o nome `id`, que mascarava o identificador do formulário no navegador: o clique recarregava a página sem gravar a edição. O campo foi renomeado e o envio passou a ler o atributo do formulário diretamente. Não há migração de banco nesta versão.
 
+Na versão `2026.11.09.1`, a recuperação de pendências permite retirar, com cópia local prévia e auditoria no servidor, um par PAUSE/STOP anterior a uma limpeza administrativa já seguida por nova finalização da mesma rotina pela responsável. A função valida a correção, a autoria e os horários antes de liberar a fila, sem alterar o tempo gravado. Aplique `supabase/migrations/20261109_skip_stale_reset_pair.sql` antes de publicar a página.
+
 Na versão `2026.11.03.1`, a ordem das Metas pode ser alterada a partir de outubro/2026, independentemente em cada competência. Arraste a alça ⠿ da empresa para outra linha da mesma prioridade e do mesmo quadro de entregas; as setas continuam disponíveis. A lista inteira recebe números sequenciais em uma única gravação, inclusive quando as posições anteriores estavam empatadas em `9999`. Aplique `supabase/migrations/20261103_monthly_goal_order.sql` antes de publicar a página. Os meses anteriores não são modificados.
 
 ## Endereço e convites personalizados
