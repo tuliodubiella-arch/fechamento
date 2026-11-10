@@ -77,3 +77,8 @@ O login oferece Primeiro acesso / definir senha e a URL ?primeiro-acesso=1 abre 
 ## Meu Painel com rotinas atribuídas
 
 Meu Painel reúne as atividades pessoais do usuário e as rotinas compartilhadas cujo responsável seja o usuário conectado, inclusive registros dentro de grupos e novas ocorrências recorrentes. Os cartões distinguem Privada e Compartilhada, e o filtro de origem permite visualizar as duas ou apenas uma categoria. Busca, status, datas e contadores usam a visão reunida. Abrir uma rotina compartilhada usa o mesmo identificador e as mesmas ações da equipe, sem copiar registros nem expor anotações pessoais. Projetos e rotinas atribuídas a outras pessoas não entram nessa visão. A privacidade e as permissões existentes do servidor permanecem aplicáveis.
+
+
+## Recorrência anual
+
+A frequência Anual pode ser selecionada ao cadastrar e editar rotinas, inclusive registros em grupos. Ao concluir uma ocorrência, início e prazo avançam um ano, preservando o mês e o dia de referência. Dias que não existem no próximo ano são ajustados ao último dia do mês, mantendo a referência para retornar ao dia original em um ano bissexto. Aplicar supabase/fiscal_annual_recurrence.sql após os scripts anteriores. O teste SQL é transacional e não mantém dados fictícios.
