@@ -66,3 +66,11 @@ test('departamentos: administração separada, identificação dinâmica e conte
  get("state.platformContext.department={id:'rh',name:'Recursos Humanos'}");assert.equal(get("departmentNavigation()[1][2]"),'Rotinas da equipe');
  get('state.platformContext={platformAdmin:true,department:null}');assert.equal(get('departmentNavigation().length'),1);
 });
+
+test('departamentos: uma resposta antiga não exibe dados após sair da conta',async()=>{
+ let release;const saved=new Map([['cavalca-fiscal-session-v1',JSON.stringify({access_token:'old-session',refresh_token:'refresh',expires_at:Date.now()/1000+3600})]]);
+ const ctx=vm.createContext({window:{FISCAL_CLOUD:{url:'https://test.supabase.co',key:'public'}},localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)},Date,JSON,Error,Map,Set,Uint8Array,atob,fetch:async url=>{if(url.endsWith('fs_platform_summary'))await new Promise(resolve=>{release=resolve;});return {status:200,ok:true,json:async()=>({departments:[{name:'Dados da conta anterior'}]})};}});
+ vm.runInContext(await readFile('public/cloud-api.js','utf8'),ctx);const api=ctx.window.FiscalCloud.api;
+ const pending=api('platform-summary');while(!release)await new Promise(resolve=>setImmediate(resolve));
+ await api('logout','POST');release();await assert.rejects(()=>pending,e=>e.status===409);assert.equal(saved.size,0);
+});
