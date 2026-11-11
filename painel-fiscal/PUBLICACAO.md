@@ -82,3 +82,17 @@ Meu Painel reúne as atividades pessoais do usuário e as rotinas compartilhadas
 ## Recorrência anual
 
 A frequência Anual pode ser selecionada ao cadastrar e editar rotinas, inclusive registros em grupos. Ao concluir uma ocorrência, início e prazo avançam um ano, preservando o mês e o dia de referência. Dias que não existem no próximo ano são ajustados ao último dia do mês, mantendo a referência para retornar ao dia original em um ano bissexto. Aplicar supabase/fiscal_annual_recurrence.sql após os scripts anteriores. O teste SQL é transacional e não mantém dados fictícios.
+
+## Departamentos e administração geral
+
+`supabase/fiscal_departments.sql` transforma a equipe existente no departamento Fiscal, mantendo identificadores, conteúdos e vínculos. O administrador geral é localizado pelo cadastro existente de Tulio. O acesso operacional dele ao Fiscal continua separado da página Administração geral. O resumo geral contém somente nome do departamento, responsável, quantidade de integrantes, quantidade de rotinas compartilhadas e data da última utilização. Não inclui rotinas, comentários, atas, notas privadas, projetos ou arquivos de outros departamentos.
+
+As nove tabelas operacionais têm `department_id`, preenchido para os dados existentes, obrigatório em novos registros e imutável depois da criação. As funções operacionais com privilégios elevados executam sob `fs_department_executor`, um papel interno sem login, sem BYPASSRLS e sem propriedade de tabelas. Ele herda a leitura do esquema de identidade de `authenticated`; o navegador não herda nem pode assumir esse papel. Novas funções que acessem dados operacionais devem seguir a mesma regra. As funções pequenas de identidade e os pontos de entrada agregados permanecem privilegiados com validações explícitas de identidade e autorização.
+
+As políticas do armazenamento acrescentam restrições exclusivas ao bucket `fiscal-prints`, impedindo que regras permissivas dos outros aplicativos liberem os arquivos. As regras dos outros buckets continuam aplicáveis. Atividades pessoais exigem também o proprietário, mesmo para administradores departamentais. Cadastro de empresas e CNPJ são independentes por departamento.
+
+Publicar `platform-departments` e atualizar `fiscal-invite-member` e `fiscal-create-member`. Todas verificam a sessão no servidor. Convites de departamentos exigem a tabela protegida de administradores gerais; os convites da equipe são vinculados ao departamento do administrador autenticado, ignorando qualquer departamento informado pelo navegador. Não utilizar `user_metadata` para autorizar privilégios.
+
+O responsável convidado define sua senha quando necessário e recebe o pré-cadastro de boas-vindas. O cadastro solicita departamento, nome do administrador e lista inicial de nomes/e-mails. A finalização é transacional e idempotente: cria um departamento e um administrador, preserva a fila dos integrantes e não duplica em tentativas repetidas. O envio da equipe é processado em lotes de até dez; falhas ou cotas de e-mail permanecem visíveis na tela Equipe para reenvio. Contas existentes mantêm a senha. Cada conta pertence a um departamento; o papel de administrador geral é independente.
+
+`supabase/fiscal_departments_test.sql` deve ser executado com rollback. Verifica pré-cadastro, isolamento das tabelas e funções, arquivos do armazenamento, papéis administrativos, notas privadas e recorrência. Os testes de e-mail usam transporte simulado, sem enviar convites reais.

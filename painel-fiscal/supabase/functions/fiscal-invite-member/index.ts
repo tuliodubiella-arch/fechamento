@@ -11,17 +11,18 @@ export function inviteHandler(env:(key:string)=>string|undefined,fetcher:typeof 
   try{
    const jwt=req.headers.get('authorization')?.replace(/^Bearer\s+/i,'');if(!jwt)return reply(401,{error:'Entre com sua conta.'});
    const identity=await request('/auth/v1/user','GET',undefined,jwt,publicKey);if(!identity.ok||!identity.data.id)return reply(401,{error:'Sessão inválida.'});
-   const caller=await request('/rest/v1/fs_members?select=role,active,name&id=eq.'+encodeURIComponent(identity.data.id));const member=caller.data?.[0];if(!caller.ok||!member?.active||member.role!=='admin')return reply(403,{error:'Somente o administrador pode convidar pessoas.'});
+   const caller=await request('/rest/v1/fs_members?select=*&id=eq.'+encodeURIComponent(identity.data.id));const member=caller.data?.[0];if(!caller.ok||!member?.active||member.role!=='admin')return reply(403,{error:'Somente o administrador do departamento pode convidar pessoas.'});
+   const departmentFilter=member.department_id?'&department_id=eq.'+encodeURIComponent(member.department_id):'';
    const raw=await req.text();if(raw.length>10000)return reply(413,{error:'Dados muito grandes.'});const b=JSON.parse(raw||'{}');
    if(b.action==='status'){
-    const team=await request('/rest/v1/fs_members?select=id,email&active=eq.true');if(!team.ok)throw Error('team');const setup=await request('/rest/v1/fs_password_onboarding?select=user_id&required=eq.true');if(!setup.ok)throw Error('onboarding');const needsPassword=new Set(setup.data.map((p:{user_id:string})=>p.user_id));const pending=[];
+    const team=await request('/rest/v1/fs_members?select=id,email&active=eq.true'+departmentFilter);if(!team.ok)throw Error('team');const setup=await request('/rest/v1/fs_password_onboarding?select=user_id&required=eq.true');if(!setup.ok)throw Error('onboarding');const needsPassword=new Set(setup.data.map((p:{user_id:string})=>p.user_id));const pending=[];
     for(const person of team.data){const account=await request('/auth/v1/admin/users/'+encodeURIComponent(person.id));if(!account.ok)continue;const u=account.data.user||account.data;if(needsPassword.has(person.id)||(u.invited_at&&!u.email_confirmed_at&&!u.confirmed_at&&!u.last_sign_in_at))pending.push({id:person.id,sentAt:u.confirmation_sent_at||u.invited_at});}
     return reply(200,{pending});
    }
    let email=String(b.email||'').trim().toLowerCase(),name=String(b.name||'').trim(),id:string|undefined,account:any;
    if(b.action==='resend'){
     if(!/^[0-9a-f-]{36}$/i.test(String(b.memberId||'')))return reply(400,{error:'Pessoa inválida.'});
-    const target=await request('/rest/v1/fs_members?select=id,email,name,active&id=eq.'+encodeURIComponent(b.memberId));const p=target.data?.[0];if(!p?.active)return reply(404,{error:'Pessoa não encontrada.'});email=p.email;name=p.name;id=p.id;
+    const target=await request('/rest/v1/fs_members?select=id,email,name,active&id=eq.'+encodeURIComponent(b.memberId)+departmentFilter);const p=target.data?.[0];if(!p?.active)return reply(404,{error:'Pessoa não encontrada neste departamento.'});email=p.email;name=p.name;id=p.id;
    }else{
     if(b.action&&b.action!=='invite')return reply(400,{error:'Operação inválida.'});
     if(!name||name.length<2||name.length>80||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return reply(400,{error:'Informe nome e e-mail válidos.'});
@@ -37,9 +38,9 @@ export function inviteHandler(env:(key:string)=>string|undefined,fetcher:typeof 
    if(!sent.ok)return reply(sent.status===429?429:400,{error:sent.status===429?'Limite de envio atingido. Aguarde antes de tentar novamente.':'O serviço de e-mail não enviou o convite. Confira o endereço e a configuração de e-mail do Supabase.'});
    id=id||sent.data.user?.id||sent.data.id;if(!id)throw Error('id');
    if(b.action!=='resend'){
-    const inserted=await request('/rest/v1/fs_members','POST',{id,name,email,role:'member',active:true});if(!inserted.ok)return reply(500,{error:'O e-mail foi enviado, mas o vínculo ao fiscal não foi concluído. Confira o cadastro antes de reenviar.'});
+    const inserted=await request('/rest/v1/fs_members','POST',{id,name,email,role:'member',active:true,...(member.department_id?{department_id:member.department_id}:{})});if(!inserted.ok)return reply(500,{error:'O e-mail foi enviado, mas o vínculo ao departamento não foi concluído. Confira o cadastro antes de reenviar.'});
    }
-   await request('/rest/v1/fs_events','POST',{user:member.name,action:b.action==='resend'?'Reenviou convite para '+name:'Convidou '+name,item:'Equipe'});
+   await request('/rest/v1/fs_events','POST',{user:member.name,action:b.action==='resend'?'Reenviou convite para '+name:'Convidou '+name,item:'Equipe',...(member.department_id?{department_id:member.department_id}:{})});
    return reply(200,{ok:true,existing:confirmed});
   }catch{return reply(500,{error:'Não foi possível concluir o convite. Tente novamente.'});}
  };

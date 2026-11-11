@@ -1,0 +1,56 @@
+-- Executar em transação com rollback. Não envia e-mails nem mantém dados fictícios.
+begin;
+create temporary table department_test_ids(kind text primary key,id uuid) on commit drop;
+do $$ declare actor uuid; a uuid:=gen_random_uuid(); teammate uuid:=gen_random_uuid(); outsider uuid:=gen_random_uuid(); dep uuid; invite uuid; item uuid; personal uuid; original_item uuid; baseline integer;
+begin
+ select user_id into actor from public.fs_platform_admins limit 1;
+ insert into department_test_ids values('platform',actor);
+ select id into original_item from public.fs_items where deleted_at is null limit 1;
+ insert into department_test_ids values('fiscal_item',original_item);
+ select count(*) into baseline from public.fs_items;
+ insert into auth.users(id,email,aud,role) values(a,a||'@department-test.invalid','authenticated','authenticated'),(teammate,teammate||'@department-test.invalid','authenticated','authenticated'),(outsider,outsider||'@department-test.invalid','authenticated','authenticated');
+ insert into public.fs_department_invites(user_id,name,email,created_by) values(a,'Admin teste',a||'@department-test.invalid',actor) returning id into invite;
+ perform set_config('request.jwt.claim.sub',a::text,true);
+ if public.fs_get_context()->'onboarding'->>'invitationId'<>invite::text then raise exception 'Convite não abre pré-cadastro.';end if;
+ dep:=(public.fs_complete_department(invite,'Departamento teste isolado','Admin teste',jsonb_build_array(jsonb_build_object('name','Integrante teste','email',teammate||'@department-test.invalid')))->>'departmentId')::uuid;
+ if (public.fs_complete_department(invite,'Não duplicar','Admin teste','[]')->>'departmentId')::uuid<>dep then raise exception 'Finalização duplicou o departamento.';end if;
+ if not public.fs_is_admin() or public.fs_is_platform_admin() then raise exception 'Perfil de administrador incorreto.';end if;
+ if (select count(*) from public.fs_team_invite_queue where department_id=dep)<>1 then raise exception 'Lista inicial da equipe não foi salva.';end if;
+ insert into public.fs_members(id,name,email,role,department_id) values(teammate,'Integrante teste',teammate||'@department-test.invalid','member',dep);
+ insert into department_test_ids values('admin_a',a),('member_a',teammate),('department_a',dep),('outsider',outsider);
+ item:=(public.fs_create_item(jsonb_build_object('type','routine','title','SEGREDO DE OUTRO DEPARTAMENTO','owner',a,'start','2026-11-11','end','2026-11-20','frequency','Diária','priority','Alta'))->>'id')::uuid;
+ insert into department_test_ids values('item_a',item);
+ personal:=(public.fs_save_personal(null,jsonb_build_object('title','NOTA PRIVADA DO ADMIN A','start','2026-11-11','end','2026-11-20','status','Planejada','priority','Alta','activities','[]'::jsonb,'notes','CONTEÚDO PRIVADO'))->>'id')::uuid;
+ insert into department_test_ids values('personal_a',personal);
+ if (public.fs_get_state()->'items')::text like '%ALTERAÇÃO CONTRATUAL%' then raise exception 'Estado do novo departamento recebeu rotinas do Fiscal.';end if;
+ if public.fs_get_meetings()<>'[]'::jsonb then raise exception 'Atas de outro departamento vazaram.';end if;
+ begin perform public.fs_platform_summary();raise exception 'FALHA: admin departamental viu painel geral.';exception when others then if sqlerrm like 'FALHA:%' then raise;end if;end;
+ begin perform public.fs_apply_item(original_item,jsonb_build_object('action','comment','text','Ataque entre departamentos','version',1));raise exception 'FALHA: edição entre departamentos permitida.';exception when others then if sqlerrm like 'FALHA:%' then raise;end if;end;
+ begin perform public.fs_create_item(jsonb_build_object('type','routine','title','Owner estrangeiro','owner',actor,'start','2026-11-11','end','2026-11-20'));raise exception 'FALHA: responsável de outro departamento permitido.';exception when others then if sqlerrm like 'FALHA:%' then raise;end if;end;
+ begin perform public.fs_prepare_attachment(original_item,'teste.png','image/png',20);raise exception 'FALHA: anexo estrangeiro permitido.';exception when others then if sqlerrm like 'FALHA:%' then raise;end if;end;
+ perform public.fs_apply_item(item,jsonb_build_object('action','status','status','Concluída','version',1));
+ if not exists(select 1 from public.fs_items where data->>'recurrencePreviousId'=item::text and department_id=dep) then raise exception 'Recorrência não preservou departamento.';end if;
+ perform set_config('request.jwt.claim.sub',teammate::text,true);
+ if public.fs_is_admin() or public.fs_get_personal()<>'[]'::jsonb then raise exception 'Membro recebeu privilégio ou nota privada do administrador.';end if;
+ perform set_config('request.jwt.claim.sub',actor::text,true);
+ if (public.fs_get_state()->'items')::text like '%SEGREDO DE OUTRO DEPARTAMENTO%' then raise exception 'Administrador geral recebeu conteúdo de outro departamento.';end if;
+ if public.fs_platform_summary()::text like '%SEGREDO DE OUTRO DEPARTAMENTO%' or public.fs_platform_summary()::text like '%CONTEÚDO PRIVADO%' then raise exception 'Resumo geral expôs conteúdo.';end if;
+ if not public.fs_platform_summary()::text like '%Departamento teste isolado%' then raise exception 'Resumo geral omitiu volumetria do departamento.';end if;
+ if (select count(*) from public.fs_items)<>baseline+2 then raise exception 'Dados originais foram alterados.';end if;
+end;$$;
+-- Caminho direto REST/SQL sob o papel real do navegador, além das RPCs.
+grant select on department_test_ids to authenticated;
+set local role authenticated;
+select set_config('request.jwt.claim.sub',(select id::text from department_test_ids where kind='admin_a'),true);
+do $$ begin
+ if exists(select 1 from public.fs_items where department_id<>public.fs_current_department()) then raise exception 'RLS permitiu leitura direta cruzada.';end if;
+ if exists(select 1 from public.fs_attachments where department_id<>public.fs_current_department()) then raise exception 'RLS permitiu anexos cruzados.';end if;
+ if exists(select 1 from public.fs_members where department_id<>public.fs_current_department()) then raise exception 'RLS permitiu leitura de outra equipe.';end if;
+ if exists(select 1 from storage.objects where bucket_id='fiscal-prints') then raise exception 'Armazenamento permitiu leitura de arquivos de outro departamento.';end if;
+ if pg_has_role('authenticated','fs_department_executor','member') then raise exception 'Papel do navegador recebeu acesso ao executor interno.';end if;
+ if jsonb_array_length(public.fs_get_state()->'items')<>2 then raise exception 'RPC não obedeceu RLS do executor interno.';end if;
+ if public.fs_get_registries()->'companies'<>'[]'::jsonb then raise exception 'Empresas de outro departamento vazaram.';end if;
+end;$$;
+reset role;
+select 'ok: isolamento de dados, funções privilegiadas, privacidade pessoal, recorrência, pré-cadastro idempotente e resumo agregado' as result;
+rollback;

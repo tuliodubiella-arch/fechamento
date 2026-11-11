@@ -34,7 +34,12 @@ if(window.FISCAL_CLOUD){
  if(route==='setup')return {required:false};
  if(route==='login'){await auth('token?grant_type=password',{email:body.email,password:body.password});return {};}
  if(route==='logout'){try{await request('/auth/v1/logout','POST',{});}finally{save(null);}return {};}
- if(route==='state'){const [team,personal,registries]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal'),rpc('fs_get_registries')]);team.personalItems=personal;team.companies=registries.companies;team.suggestions=registries.suggestions;return signed(team);}
+ if(route==='state'){const context=await rpc('fs_get_context');if(!context?.user?.id)throw Error('Não foi possível identificar seu acesso.');if(!context.department)return {user:context.user,users:[],items:[],events:[],groups:[],personalItems:[],companies:[],suggestions:[],platformContext:context};const [team,personal,registries]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal'),rpc('fs_get_registries')]);team.personalItems=personal;team.companies=registries.companies;team.suggestions=registries.suggestions;team.platformContext=context;return signed(team);}
+ if(route==='platform-summary')return rpc('fs_platform_summary');
+ if(route==='department-setup')return rpc('fs_complete_department',{p_invitation:body.invitationId,p_name:body.name,p_admin_name:body.adminName,p_users:body.users});
+ if(route==='department-invitation')return request('/functions/v1/platform-departments','POST',body);
+ if(route==='department-team-queue')return rpc('fs_team_queue_status');
+ if(route==='department-team-send')return request('/functions/v1/platform-departments','POST',{action:'send-team'});
  if(route==='personal')return method==='GET'?rpc('fs_get_personal'):rpc('fs_save_personal',{p_id:null,p_payload:body});
  if(route.startsWith('personal/'))return rpc('fs_save_personal',{p_id:route.slice(9),p_payload:body});
  if(route==='companies'||route.startsWith('companies/'))return rpc('fs_save_company',{p_id:route==='companies'?null:route.slice(10),p_payload:body});

@@ -6,7 +6,7 @@ begin
  select id into admin_id from public.fs_members where role='admin' and active limit 1;
  select id into member_id from auth.users where id not in(select id from public.fs_members) limit 1;
  if admin_id is null or member_id is null then raise exception 'É necessário um administrador e uma conta adicional para este teste.';end if;
- insert into public.fs_members(id,name,email) select id,'Teste fiscal transacional',email from auth.users where id=member_id;
+ insert into public.fs_members(id,name,email,department_id) select id,'Teste fiscal transacional',email,(select department_id from public.fs_members where id=admin_id) from auth.users where id=member_id;
  perform set_config('request.jwt.claim.sub',admin_id::text,true);
  state:=public.fs_get_state();if state->'user'->>'id'<>admin_id::text then raise exception 'Falha na identificação do usuário.';end if;
  for ident in select gen_random_uuid() loop

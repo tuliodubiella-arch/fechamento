@@ -8,6 +8,7 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  calls.push({url,...options});let body={};let status=200;
  if(url.includes('/auth/v1/token'))body={access_token:'test-session',refresh_token:'test-refresh',expires_in:3600};
  if(url.endsWith('fs_prepare_attachment'))body={id:'attachment-id',path:'member/attachment-id.png',type:'image/png',name:'print.png'};
+ if(url.endsWith('fs_get_context'))body={user:{id:'member'},department:{id:'own-department',name:'Fiscal'},platformAdmin:false};
  if(url.endsWith('fs_get_state'))body={user:{id:'member'},users:[],items:[{comments:[{attachments:[{path:'member/attachment-id.png'}]}],executions:[],delegations:[]}],events:[]};
  if(url.endsWith('fs_get_registries'))body={companies:[],suggestions:[]};
  if(url.endsWith('/object/sign/fiscal-prints'))body=[{path:'member/attachment-id.png',signedURL:'/object/sign/fiscal-prints/member/attachment-id.png?token=test'}];
