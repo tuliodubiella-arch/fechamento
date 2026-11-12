@@ -47,6 +47,8 @@ Na versão `2026.10.23.1`, a edição online do **Controle de erros** só inform
 
 Na versão `2026.10.23.2`, o botão **Salvar erro** volta a interceptar o envio do formulário. O campo interno de identificação tinha o nome `id`, que mascarava o identificador do formulário no navegador: o clique recarregava a página sem gravar a edição. O campo foi renomeado e o envio passou a ler o atributo do formulário diretamente. Não há migração de banco nesta versão.
 
+Na versão `2026.11.12.2`, o comparativo abre setembro × outubro quando a competência geral ainda está em setembro e já existem rotinas finalizadas em outubro.
+
 Na versão `2026.11.12.1`, **Meu Painel** ganhou dois gráficos comparativos do tempo das rotinas: maiores variações e tempos estáveis. Meses, empresas, grupo, atividade e limites são filtráveis; Tulio administrador também pode filtrar responsável e ver a equipe. Cada outro usuário vê as próprias rotinas. A comparação exige finalização nos dois meses e ao menos um minuto registrado em cada um. Não há alteração de banco nesta versão.
 
 Na versão `2026.11.09.2`, a retirada auditada de um PAUSE local repetido também funciona após um administrador finalizar a rotina, desde que o servidor confirme o PAUSE original, a autoria e que o próximo evento válido foi o STOP administrativo. Aplique `supabase/migrations/20261109_duplicate_pause_after_finish.sql` antes de publicar a página. Nenhum tempo gravado é alterado.

@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.11.12.1";
+const APP_VERSION = "2026.11.12.2";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -651,7 +651,9 @@ function renderTeamTimeAnalysis() {
     ${slowest.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Conta / atividade</th><th>Tipo de tarefa</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${slowest.map((task) => `<tr><td><strong>${esc(task.account)}</strong></td><td>${esc(task.group)}</td><td>${esc(task.company_name)}</td><td>${esc(task.owner_name || "—")}</td><td>${badge(task.status)}</td><td><strong>${duration(task.seconds)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Os tempos aparecerão após o primeiro PLAY das rotinas das empresas selecionadas.</div>'}</section>`;
 }
 function comparisonSettings() {
-  const month = state.comparisonMonth || state.month;
+  const next = adjacentCompetence(state.month, 1);
+  const month = state.comparisonMonth || (state.month === legacyCutoff
+    && (state.states || []).some((item) => item.competence === next && item.status === "Finalizado") ? next : state.month);
   const base = state.comparisonBaseMonth || adjacentCompetence(month, -1);
   const bounded = (value, fallback, limit) => {
     const number = Number(value);

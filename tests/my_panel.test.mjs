@@ -146,6 +146,10 @@ test("comparação separa grandes variações, tempos estáveis e itens sem apon
     { task_id: "too-short", competence: "2026-10", status: "Finalizado", total_seconds: 40 },
   ];
   state.corrections = [{ task_id: "slow", competence: "2026-09", correction_type: "time_edit" }];
+  state.month = "2026-09";
+  assert.equal(vm.runInContext("comparisonSettings().month", context), "2026-10");
+  assert.equal(vm.runInContext("comparisonSettings().base", context), "2026-09");
+  state.month = "2026-10";
   const pairs = vm.runInContext("comparisonPairs()", context);
   assert.equal(pairs.length, 3);
   assert.deepEqual([...pairs].map((row) => [row.taskId, row.category, row.corrected]),
