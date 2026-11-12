@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.11.09.2";
+const APP_VERSION = "2026.11.12.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -18,6 +18,8 @@ const state = {
   session: null, member: null, members: [], companies: [], tasks: [], taskLabelEdits: [], taskLabelsReady: false, taskLabelsError: "", owners: [], targets: [], receipts: [], receiptDeliveries: [], receiptFeatureReady: false,
   states: [], holidays: [], history: [], releaseNotes: [], corrections: [], taskComments: [], suggestions: [], closingErrors: [], generalRoutines: [], generalEvents: [], generalNotes: [], generalReady: false, generalError: "", generalStatusFilter: "", generalSearch: "", generalMineOnly: false, generalOpenId: "", generalCreateOpen: false, generalCreateDraft: {}, generalRecurrenceDrafts: {}, generalNoteDrafts: {}, errorFeatureReady: false, errorFeatureError: "", errorStatusFilter: "", errorSearch: "", collaborationReady: false, collaborationError: "", commentsMonth: "", commentTaskId: "", commentDrafts: {}, suggestionReasonDrafts: {}, suggestionDraft: "", adminDataError: "", tab: "Painel Geral", month: "2026-09", query: "",
   companyFilter: "", ownerFilter: "", statusFilters: [], groupFilters: [], myPanelCompanyFilters: [], analysisCompanyFilters: [], executionOwnerWarning: "", online: navigator.onLine,
+  comparisonMonth: "", comparisonBaseMonth: "", comparisonCompanyFilters: [], comparisonGroup: "", comparisonTask: "", comparisonOwner: "", comparisonSameOwner: false, comparisonDirection: "increase",
+  comparisonStableMinutes: 10, comparisonStablePercent: 20, comparisonHighMinutes: 30, comparisonHighPercent: 30,
   queue: [], ready: false, needsPassword: initialInvite, tick: Date.now(), error: "",
   recoveryHold: false, recoveryApproved: false, recoveryBackupRequested: false, recoveryBackupConfirmed: false, syncError: "", errorSaveNotice: "", errorSaveFailed: false,
   invitePendingIds: [], inviteStatus: "idle",
@@ -571,7 +573,8 @@ function renderMyPanel() {
     <section class="panel"><div class="panel-head"><div><h2>Meu tempo por grupo sintético</h2><p>Horas registradas por tipo de tarefa</p></div></div><div class="panel-body chart-list">${isHistorical() ? '<div class="empty">O tempo não está disponível para competências históricas.</div>' : chartRows(groups, "time")}</div></section></div>
     <section class="panel"><div class="panel-head"><div><h2>Minhas rotinas</h2><p>Atividades atribuídas a você na competência selecionada</p></div><button class="btn compact" data-action="my-execution" ${items.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
     ${ordered.length ? `<div class="table-wrap my-tasks-wrap"><table class="my-tasks-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${ordered.map((item) => `<tr><td><strong>${esc(item.account)}</strong><small>${esc(executionGroup(item))}</small></td><td>${esc(item.company_name)}</td><td>${badge(statusOf(item))}</td><td>${item.historic ? "—" : duration(secondsFor(item))}</td></tr>`).join("")}</tbody></table></div>`
-      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>`;
+      : '<div class="empty">Você não possui rotinas atribuídas nesta competência. Se isso estiver incorreto, confira o responsável na tela Execução.</div>'}</section>
+    ${renderTimeComparison()}`;
 }
 function dashboardCompanyKey(task) { return task.company_id || task.company_name; }
 function dashboardCompanyOptions(tasks) {
@@ -609,7 +612,8 @@ function renderTulioPanel() {
     <details class="panel my-routines-collapsed"><summary class="panel-head"><span><strong>Minhas rotinas</strong><small>${mine.length ? `${mine.length} tarefa(s) vinculada(s) · ${pending} pendente(s)` : "Nenhuma tarefa vinculada nesta competência"}</small></span>${mine.length ? `<span class="my-task-alert" role="status">${mine.length} vinculada(s)</span>` : ""}<span class="my-routines-chevron" aria-hidden="true">▾</span></summary>
     <div class="my-routines-body"><div class="panel-head"><p>Atividades atribuídas diretamente a você</p><button class="btn compact" data-action="my-execution" ${mine.length && !isHistorical() ? "" : "disabled"}>Abrir minhas tarefas em Execução</button></div>
     ${mine.length ? `<div class="table-wrap my-tasks-wrap"><table class="my-tasks-table"><thead><tr><th>Conta / grupo</th><th>Empresa</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${mine.map((task) => `<tr><td><strong>${esc(task.account)}</strong><small>${esc(executionGroup(task))}</small></td><td>${esc(task.company_name)}</td><td>${badge(statusOf(task))}</td><td>${task.historic ? "—" : duration(secondsFor(task))}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Nenhuma rotina atribuída ao seu nome nesta competência.</div>'}</div></details>
-    ${renderTeamTimeAnalysis()}`;
+    ${renderTeamTimeAnalysis()}
+    ${renderTimeComparison()}`;
 }
 function canViewTeamTimeAnalysis() {
   return Boolean(state.member?.is_admin && state.member.email?.trim().toLocaleLowerCase("pt-BR") === "tulio.dubiella@gmail.com");
@@ -645,6 +649,118 @@ function renderTeamTimeAnalysis() {
     ${rows.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Tipo de tarefa</th><th>Empresa</th><th>Finalizadas / total</th><th>Tempo total</th><th>Média por rotina finalizada</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${esc(row.group)}</strong></td><td>${esc(row.company)}</td><td>${row.completed}/${row.total}</td><td><strong>${duration(row.seconds)}</strong><span class="analysis-bar"><span style="width:${Math.round(100 * row.seconds / Math.max(1, maxima.get(row.group)))}%"></span></span></td><td>${row.completed ? duration(row.completedSeconds / row.completed) : "—"}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Não há rotinas nesta competência para as empresas selecionadas.</div>'}</section>
     <section class="panel"><div class="panel-head"><div><h2>Conciliações mais demoradas por empresa</h2><p>As 15 rotinas com mais tempo registrado nas empresas selecionadas; inclui atividades em andamento</p></div></div>
     ${slowest.length ? `<div class="table-wrap analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Conta / atividade</th><th>Tipo de tarefa</th><th>Empresa</th><th>Responsável</th><th>Status</th><th>Tempo</th></tr></thead><tbody>${slowest.map((task) => `<tr><td><strong>${esc(task.account)}</strong></td><td>${esc(task.group)}</td><td>${esc(task.company_name)}</td><td>${esc(task.owner_name || "—")}</td><td>${badge(task.status)}</td><td><strong>${duration(task.seconds)}</strong></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">Os tempos aparecerão após o primeiro PLAY das rotinas das empresas selecionadas.</div>'}</section>`;
+}
+function comparisonSettings() {
+  const month = state.comparisonMonth || state.month;
+  const base = state.comparisonBaseMonth || adjacentCompetence(month, -1);
+  const bounded = (value, fallback, limit) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.min(limit, Math.max(0, number)) : fallback;
+  };
+  return { month, base,
+    stableSeconds: bounded(state.comparisonStableMinutes, 10, 10000) * 60,
+    stableFraction: bounded(state.comparisonStablePercent, 20, 100) / 100,
+    highSeconds: bounded(state.comparisonHighMinutes, 30, 10000) * 60,
+    highFraction: bounded(state.comparisonHighPercent, 30, 100) / 100 };
+}
+function comparisonPairs(settings = comparisonSettings()) {
+  if (settings.base === settings.month || settings.base < legacyCutoff || settings.month < legacyCutoff) return [];
+  const taskMap = new Map((state.tasks || []).map((task) => [task.id, task]));
+  const monthStates = new Map((state.states || []).filter((item) => item.competence === settings.month && item.status === "Finalizado")
+    .map((item) => [item.task_id, item]));
+  const baseStates = (state.states || []).filter((item) => item.competence === settings.base && item.status === "Finalizado");
+  const ownerAt = (task, competence) => {
+    const monthly = (state.owners || []).find((item) => item.task_id === task.id && item.competence === competence);
+    return monthly ? monthly.responsible_id || monthly.responsible_legacy_name || null
+      : task.responsible_id || task.responsible_legacy_name || null;
+  };
+  const corrected = new Set((state.corrections || []).filter((item) => item.correction_type !== "queue_skip"
+    && (item.competence === settings.base || item.competence === settings.month))
+    .map((item) => JSON.stringify([item.task_id, item.competence])));
+  const rows = [];
+  for (const earlier of baseStates) {
+    const later = monthStates.get(earlier.task_id), task = taskMap.get(earlier.task_id);
+    if (!later || !task) continue;
+    const baseSeconds = Number(earlier.total_seconds), monthSeconds = Number(later.total_seconds);
+    if (!Number.isFinite(baseSeconds) || !Number.isFinite(monthSeconds) || baseSeconds < 60 || monthSeconds < 60) continue;
+    const baseOwner = ownerAt(task, settings.base), monthOwner = ownerAt(task, settings.month);
+    if (!canViewTeamTimeAnalysis() && monthOwner !== state.member?.id
+      && String(monthOwner || "").trim().toLocaleLowerCase("pt-BR") !== state.member?.name?.trim().toLocaleLowerCase("pt-BR")) continue;
+    const labels = taskLabelFor(task, settings.month);
+    const delta = monthSeconds - baseSeconds, difference = Math.abs(delta), maximum = Math.max(baseSeconds, monthSeconds);
+    const stable = difference <= settings.stableSeconds && difference <= settings.stableFraction * maximum;
+    const high = difference >= settings.highSeconds && difference >= settings.highFraction * maximum;
+    rows.push({ taskId: task.id, companyId: task.company_id, company: companyName(task.company_id),
+      account: labels.account, group: labels.group_name?.trim() || "OUTROS",
+      baseSeconds, monthSeconds, delta, baseOwner, monthOwner, sameOwner: Boolean(baseOwner && baseOwner === monthOwner),
+      corrected: corrected.has(JSON.stringify([task.id, settings.base])) || corrected.has(JSON.stringify([task.id, settings.month])),
+      category: stable ? "stable" : high ? "high" : "intermediate" });
+  }
+  return rows;
+}
+function comparisonChartRows(rows, settings) {
+  if (!rows.length) return '<div class="empty">Nenhuma rotina corresponde a estes filtros.</div>';
+  const maximum = Math.max(...rows.flatMap((row) => [row.baseSeconds, row.monthSeconds]), 1);
+  return rows.map((row) => {
+    const deltaLabel = `${row.delta >= 0 ? "+" : "−"}${duration(Math.abs(row.delta))}`;
+    const ownerLabel = (owner) => state.members?.find((person) => person.id === owner)?.name || owner || "A definir";
+    return `<details class="comparison-row"><summary><span class="comparison-title"><strong>${esc(row.account)}</strong><small>${esc(row.company)} · ${esc(row.group)}</small></span>
+      <span class="comparison-bars"><span><i class="comparison-bar base" style="width:${Math.max(2, 100 * row.baseSeconds / maximum)}%"></i><small>${esc(monthName(settings.base).split(" de ")[0])}: ${duration(row.baseSeconds)}</small></span>
+      <span><i class="comparison-bar current" style="width:${Math.max(2, 100 * row.monthSeconds / maximum)}%"></i><small>${esc(monthName(settings.month).split(" de ")[0])}: ${duration(row.monthSeconds)}</small></span></span>
+      <strong class="comparison-delta ${row.delta > 0 ? "increase" : row.delta < 0 ? "decrease" : ""}">${deltaLabel}</strong></summary>
+      <div class="comparison-detail">Responsável no mês base: ${esc(ownerLabel(row.baseOwner))} · no mês comparado: ${esc(ownerLabel(row.monthOwner))}.
+      ${row.sameOwner ? "Mesmo responsável nos dois meses." : "Responsável diferente ou indefinido."}
+      ${row.corrected ? "Houve correção administrativa de apontamento em pelo menos um dos meses." : ""}
+      O tempo representa os apontamentos de trabalho, não o intervalo entre início e fim. A variação não identifica sozinha a causa.</div></details>`;
+  }).join("");
+}
+function renderTimeComparison() {
+  if (isHistorical()) return '<section class="panel"><div class="panel-head"><div><h2>Comparação do tempo das rotinas</h2><p>Os tempos de execução estão disponíveis a partir de setembro de 2026.</p></div></div></section>';
+  const settings = comparisonSettings();
+  const all = comparisonPairs(settings);
+  const companyOptions = [...new Map(all.map((row) => [row.companyId, { id: row.companyId, name: row.company }])).values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const companySelection = (state.comparisonCompanyFilters || []).filter((id) => companyOptions.some((item) => item.id === id));
+  const groupOptions = [...new Set(all.map((row) => row.group))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const taskOptions = [...all].sort((a, b) => a.company.localeCompare(b.company, "pt-BR") || a.account.localeCompare(b.account, "pt-BR"));
+  const ownerOptions = [...(state.members || [])].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const rows = all.filter((row) => (!companySelection.length || companySelection.includes(row.companyId))
+    && (!state.comparisonGroup || row.group === state.comparisonGroup)
+    && (!state.comparisonTask || row.taskId === state.comparisonTask)
+    && (!state.comparisonOwner || row.monthOwner === state.comparisonOwner)
+    && (!state.comparisonSameOwner || row.sameOwner));
+  const stable = rows.filter((row) => row.category === "stable").sort((a, b) => Math.max(b.baseSeconds, b.monthSeconds) - Math.max(a.baseSeconds, a.monthSeconds)).slice(0, 10);
+  const high = rows.filter((row) => row.category === "high" && (state.comparisonDirection === "decrease" ? row.delta < 0 : row.delta > 0))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 10);
+  const counts = { stable: rows.filter((row) => row.category === "stable").length,
+    high: rows.filter((row) => row.category === "high").length,
+    intermediate: rows.filter((row) => row.category === "intermediate").length };
+  const months = [...new Set([...(state.states || []).map((item) => item.competence), state.month, settings.base, settings.month])]
+    .filter((month) => month >= legacyCutoff).sort();
+  const monthOptionsFor = (selected) => months.map((month) => `<option value="${esc(month)}" ${month === selected ? "selected" : ""}>${esc(monthName(month))}</option>`).join("");
+  return `<section class="panel comparison-panel"><div class="panel-head"><div><h2>Comparação do tempo das rotinas</h2><p>${canViewTeamTimeAnalysis() ? "Equipe" : "Suas rotinas"} · atividades finalizadas nos dois meses, com pelo menos 1 minuto registrado em cada um.</p></div></div>
+    <div class="comparison-filters">
+      <label>De <select id="comparison-base-month" class="select">${monthOptionsFor(settings.base)}</select></label>
+      <label>Para <select id="comparison-month" class="select">${monthOptionsFor(settings.month)}</select></label>
+      ${renderDashboardCompanyFilter("comparison-company-filter", companyOptions, companySelection, "data-comparison-company-filter")}
+      <label>Grupo sintético <select id="comparison-group" class="select"><option value="">Todos os grupos</option>${groupOptions.map((group) => `<option value="${esc(group)}" ${state.comparisonGroup === group ? "selected" : ""}>${esc(group)}</option>`).join("")}</select></label>
+      <label>Atividade <select id="comparison-task" class="select"><option value="">Todas as atividades</option>${taskOptions.map((row) => `<option value="${esc(row.taskId)}" ${state.comparisonTask === row.taskId ? "selected" : ""}>${esc(row.company)} · ${esc(row.account)}</option>`).join("")}</select></label>
+      ${canViewTeamTimeAnalysis() ? `<label>Responsável no mês comparado <select id="comparison-owner" class="select"><option value="">Todos os responsáveis</option>${ownerOptions.map((person) => `<option value="${esc(person.id)}" ${state.comparisonOwner === person.id ? "selected" : ""}>${esc(person.name)}</option>`).join("")}</select></label>` : ""}
+      <label class="comparison-check"><input id="comparison-same-owner" type="checkbox" ${state.comparisonSameOwner ? "checked" : ""}> Mesmo responsável nos dois meses</label>
+    </div>
+    <details class="comparison-thresholds"><summary>Ajustar limites de variação</summary><div>
+      <label>Estável: até <input id="comparison-stable-minutes" type="number" min="0" max="10000" value="${settings.stableSeconds / 60}"> minutos</label>
+      <label>e até <input id="comparison-stable-percent" type="number" min="0" max="100" value="${settings.stableFraction * 100}">%</label>
+      <label>Grande variação: a partir de <input id="comparison-high-minutes" type="number" min="0" max="10000" value="${settings.highSeconds / 60}"> minutos</label>
+      <label>e a partir de <input id="comparison-high-percent" type="number" min="0" max="100" value="${settings.highFraction * 100}">%</label>
+    </div></details>
+    ${settings.base === settings.month ? '<div class="notice warn">Selecione dois meses diferentes para comparar.</div>' : ""}
+    <div class="comparison-summary"><span>${rows.length} comparáveis</span><span>${counts.high} com grande variação</span><span>${counts.stable} estáveis</span><span>${counts.intermediate} intermediárias</span></div>
+    <div class="two-col comparison-charts"><section><div class="comparison-chart-head"><h3>Maiores variações</h3><select id="comparison-direction" class="select" aria-label="Sentido da variação"><option value="increase" ${state.comparisonDirection !== "decrease" ? "selected" : ""}>Demoraram mais</option><option value="decrease" ${state.comparisonDirection === "decrease" ? "selected" : ""}>Demoraram menos</option></select></div>
+      <div class="comparison-chart-list">${comparisonChartRows(high, settings)}</div></section>
+      <section><div class="comparison-chart-head"><h3>Tempos estáveis</h3><small>10 rotinas de maior duração dentro do limite</small></div>
+      <div class="comparison-chart-list">${comparisonChartRows(stable, settings)}</div></section></div>
+    <p class="comparison-footnote">Uma mesma atividade é comparada pelo cadastro da empresa e da rotina. Alterações no responsável e correções de tempo aparecem ao abrir a linha. Os meses sem apontamento completo ficam fora da comparação; o resultado não determina a causa da diferença.</p></section>`;
 }
 function renderExecution() {
   const monthTasks = monthlyTasks();
@@ -1451,6 +1567,29 @@ document.addEventListener("change", (event) => {
     state.groupFilters = element.checked ? [...state.groupFilters, group] : state.groupFilters.filter((item) => item !== group);
     applyExecutionFilters(); return;
   }
+  if (element.matches("[data-comparison-company-filter]")) {
+    const id = element.dataset.comparisonCompanyFilter;
+    state.comparisonCompanyFilters = element.checked
+      ? [...state.comparisonCompanyFilters, id] : state.comparisonCompanyFilters.filter((value) => value !== id);
+    render();
+    const filter = $("#comparison-company-filter"); if (filter) filter.open = true;
+    return;
+  }
+  const comparisonFields = {
+    "comparison-base-month": "comparisonBaseMonth", "comparison-month": "comparisonMonth",
+    "comparison-group": "comparisonGroup", "comparison-task": "comparisonTask", "comparison-owner": "comparisonOwner",
+    "comparison-direction": "comparisonDirection", "comparison-stable-minutes": "comparisonStableMinutes",
+    "comparison-stable-percent": "comparisonStablePercent", "comparison-high-minutes": "comparisonHighMinutes",
+    "comparison-high-percent": "comparisonHighPercent", "comparison-same-owner": "comparisonSameOwner",
+  };
+  if (comparisonFields[element.id]) {
+    state[comparisonFields[element.id]] = element.type === "checkbox" ? element.checked
+      : element.type === "number" ? Number(element.value) : element.value;
+    const keepThresholdsOpen = Boolean(element.closest(".comparison-thresholds"));
+    render();
+    if (keepThresholdsOpen) $(".comparison-thresholds").open = true;
+    return;
+  }
   if (element.matches("[data-my-company-filter], [data-analysis-company-filter]")) {
     const key = element.matches("[data-my-company-filter]") ? "myPanelCompanyFilters" : "analysisCompanyFilters";
     const companyId = element.dataset.myCompanyFilter || element.dataset.analysisCompanyFilter;
@@ -1460,7 +1599,7 @@ document.addEventListener("change", (event) => {
     const filter = document.getElementById(filterId); if (filter) filter.open = true;
     return;
   }
-  if (element.id === "month") { state.month = element.value; state.commentTaskId = ""; state.query = ""; state.groupFilters = []; state.myPanelCompanyFilters = []; state.analysisCompanyFilters = []; state.executionOwnerWarning = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
+  if (element.id === "month") { state.month = element.value; state.commentTaskId = ""; state.query = ""; state.groupFilters = []; state.myPanelCompanyFilters = []; state.analysisCompanyFilters = []; state.comparisonMonth = ""; state.comparisonBaseMonth = ""; state.comparisonCompanyFilters = []; state.comparisonGroup = ""; state.comparisonTask = ""; state.comparisonOwner = ""; state.executionOwnerWarning = ""; receiptEditor = null; render(); if (state.online) void loadData(); return; }
   if (element.id === "company-filter") { state.companyFilter = element.value; render(); return; }
   if (element.id === "owner-filter") { state.ownerFilter = element.value; render(); return; }
   const { action, id, department } = element.dataset;
@@ -1527,6 +1666,10 @@ document.addEventListener("click", async (event) => {
   if (action === "clear-group-filter") { state.groupFilters = []; document.querySelectorAll("[data-group-filter]").forEach((input) => { input.checked = false; }); applyExecutionFilters(); return; }
   if (action === "clear-my-panel-company-filter" || action === "clear-analysis-company-filter") {
     state[action === "clear-my-panel-company-filter" ? "myPanelCompanyFilters" : "analysisCompanyFilters"] = [];
+    render(); return;
+  }
+  if (action === "clear-comparison-company-filter") {
+    state.comparisonCompanyFilters = [];
     render(); return;
   }
   if (action === "tab") {

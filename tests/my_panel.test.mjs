@@ -17,6 +17,13 @@ function setup(tasks, historical = false) {
     month: historical ? "2026-08" : "2026-10", tick: Date.parse("2026-10-22T12:00:00Z"), targets: [],
   };
   const context = vm.createContext({ state, monthlyTasks: () => tasks, isHistorical: () => historical,
+    legacyCutoff: "2026-09", adjacentCompetence: (month, offset) => {
+      const [year, number] = month.split("-").map(Number);
+      const date = new Date(Date.UTC(year, number - 1 + offset, 1));
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    },
+    taskLabelFor: (task) => task,
+    companyName: (id) => state.companies.find((company) => company.id === id)?.name || "Empresa não encontrada",
     taskState: (id) => ({ status: id === "mine-done" ? "Finalizado" : "Não iniciado", total_seconds: id === "mine-done" ? 3600 : 0 }),
     currentSeconds: (activity) => activity?.total_seconds || 0, duration: (seconds) => `${seconds}s`,
     monthName: () => "outubro de 2026", esc: (value) => String(value ?? ""), renderClosingPerformance: () => "" });
@@ -113,4 +120,49 @@ test("rotinas atribuídas ao Tulio geram alerta no quadro recolhido", () => {
   assert.match(html, /<details class="panel my-routines-collapsed">/);
   assert.match(html, /my-task-alert[^>]*>1 vinculada\(s\)/);
   assert.match(html, /BANCOS/);
+});
+
+test("comparação separa grandes variações, tempos estáveis e itens sem apontamento completo", () => {
+  const tasks = [
+    { id: "slow", account: "BANCOS", group_name: "FINANCEIRO", company_id: "a", company_name: "Empresa A", responsible_id: "ana" },
+    { id: "steady", account: "INTEGRAÇÃO", group_name: "INTEGRAÇÕES", company_id: "b", company_name: "Empresa B", responsible_id: "ana" },
+    { id: "middle", account: "FOLHA", group_name: "RH", company_id: "a", company_name: "Empresa A", responsible_id: "bia" },
+    { id: "unfinished", account: "ESTOQUE", group_name: "ESTOQUE", company_id: "a", company_name: "Empresa A", responsible_id: "ana" },
+    { id: "too-short", account: "CAIXAS", group_name: "FINANCEIRO", company_id: "b", company_name: "Empresa B", responsible_id: "ana" },
+  ];
+  const { context, state } = setup(tasks);
+  state.member = { id: "tulio", name: "Tulio", email: "tulio.dubiella@gmail.com", is_admin: true };
+  state.tasks = tasks;
+  state.states = [
+    { task_id: "slow", competence: "2026-09", status: "Finalizado", total_seconds: 3600 },
+    { task_id: "slow", competence: "2026-10", status: "Finalizado", total_seconds: 7200 },
+    { task_id: "steady", competence: "2026-09", status: "Finalizado", total_seconds: 3000 },
+    { task_id: "steady", competence: "2026-10", status: "Finalizado", total_seconds: 3020 },
+    { task_id: "middle", competence: "2026-09", status: "Finalizado", total_seconds: 2000 },
+    { task_id: "middle", competence: "2026-10", status: "Finalizado", total_seconds: 2700 },
+    { task_id: "unfinished", competence: "2026-09", status: "Finalizado", total_seconds: 4000 },
+    { task_id: "unfinished", competence: "2026-10", status: "Em andamento", total_seconds: 4000 },
+    { task_id: "too-short", competence: "2026-09", status: "Finalizado", total_seconds: 25 },
+    { task_id: "too-short", competence: "2026-10", status: "Finalizado", total_seconds: 40 },
+  ];
+  state.corrections = [{ task_id: "slow", competence: "2026-09", correction_type: "time_edit" }];
+  const pairs = vm.runInContext("comparisonPairs()", context);
+  assert.equal(pairs.length, 3);
+  assert.deepEqual([...pairs].map((row) => [row.taskId, row.category, row.corrected]),
+    [["slow", "high", true], ["steady", "stable", false], ["middle", "intermediate", false]]);
+  const html = vm.runInContext("renderTimeComparison()", context);
+  assert.match(html, /3 comparáveis/);
+  assert.match(html, /1 com grande variação/);
+  assert.match(html, /1 estáveis/);
+  assert.match(html, /1 intermediárias/);
+  assert.match(html, /Houve correção administrativa/);
+  assert.doesNotMatch(html, /ESTOQUE|CAIXAS/);
+  state.comparisonCompanyFilters = ["b"];
+  assert.match(vm.runInContext("renderTimeComparison()", context), /1 comparáveis/);
+  state.comparisonStableMinutes = 0;
+  assert.match(vm.runInContext("renderTimeComparison()", context), /0 estáveis/);
+  state.comparisonCompanyFilters = [];
+  state.comparisonStableMinutes = 10;
+  state.member = { id: "ana", name: "Ana Silva", is_admin: false };
+  assert.deepEqual([...vm.runInContext("comparisonPairs()", context)].map((row) => row.taskId), ["slow", "steady"]);
 });
