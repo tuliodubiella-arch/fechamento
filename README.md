@@ -47,6 +47,8 @@ Na versão `2026.10.23.1`, a edição online do **Controle de erros** só inform
 
 Na versão `2026.10.23.2`, o botão **Salvar erro** volta a interceptar o envio do formulário. O campo interno de identificação tinha o nome `id`, que mascarava o identificador do formulário no navegador: o clique recarregava a página sem gravar a edição. O campo foi renomeado e o envio passou a ler o atributo do formulário diretamente. Não há migração de banco nesta versão.
 
+Na versão `2026.11.19.1`, a troca de responsável em competência copiada atualiza a atribuição existente, sem passar pela política de criação de nova linha. Uma atribuição ainda pendente no navegador continua preservada na fila; após a atualização, a revisão mostra o responsável atual e o pretendido antes do reenvio. Uma rotina realmente nova na competência ainda pode criar sua primeira atribuição, quando permitida pelo servidor. Nenhuma regra de acesso do banco foi afrouxada.
+
 Na versão `2026.11.12.2`, o comparativo abre setembro × outubro quando a competência geral ainda está em setembro e já existem rotinas finalizadas em outubro.
 
 Na versão `2026.11.12.1`, **Meu Painel** ganhou dois gráficos comparativos do tempo das rotinas: maiores variações e tempos estáveis. Meses, empresas, grupo, atividade e limites são filtráveis; Tulio administrador também pode filtrar responsável e ver a equipe. Cada outro usuário vê as próprias rotinas. A comparação exige finalização nos dois meses e ao menos um minuto registrado em cada um. Não há alteração de banco nesta versão.

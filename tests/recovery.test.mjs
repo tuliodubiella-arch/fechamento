@@ -13,6 +13,16 @@ function setup(queue, handlers = {}) {
   const calls = [];
   const client = {
     from(table) {
+      if (table === "fc_month_owners") return {
+        update(values) {
+          calls.push(["owner-update", values.responsible_id]);
+          return { eq() { return this; }, async select() { return handlers.ownerUpdate?.(values) || { data: [], error: null }; } };
+        },
+        insert(row) {
+          calls.push(["owner-insert", row.responsible_id]);
+          return { async select() { return handlers.ownerInsert?.(row) || { data: [row], error: null }; } };
+        },
+      };
       return {
         async insert(row) { calls.push(["insert", table, row.id]); return handlers.insert?.(row) || { error: null }; },
         select() { return { eq() { return { async maybeSingle() { return handlers.existing || { data: null, error: null }; } }; } }; },
@@ -121,6 +131,45 @@ test("inclusão já recebida pelo servidor não duplica a rotina", async () => {
   await vm.runInContext("state.recoveryApproved = true; flush()", context);
   assert.deepEqual(calls, [["insert", "fc_tasks", "task-new"], ["rpc", "fc_apply_activity", "play"], ["rpc", "fc_apply_activity", "stop"]]);
   assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 0);
+});
+
+test("atribuição de novembro já existente sincroniza por atualização, sem INSERT bloqueado", async () => {
+  const row = { task_id: "task-26266", competence: "2026-11", responsible_id: "vanilda", responsible_legacy_name: null };
+  const pending = [{ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" }];
+  const { context, storage, calls, userId } = setup(pending, { ownerUpdate: () => ({ data: [row], error: null }) });
+  vm.runInContext("state.recoveryHold = true; state.recoveryApproved = true;", context);
+  await vm.runInContext("flush()", context);
+  assert.deepEqual(calls, [["owner-update", "vanilda"]]);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 0);
+  assert.equal(storage.has(`fc_recovery_hold_${userId}`), false);
+});
+
+test("primeira atribuição de rotina nova insere somente quando a linha não existe", async () => {
+  const row = { task_id: "task-new", competence: "2026-11", responsible_id: "vanilda", responsible_legacy_name: null };
+  const { context, storage, calls, userId } = setup([{ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" }]);
+  await vm.runInContext("flush()", context);
+  assert.deepEqual(calls, [["owner-update", "vanilda"], ["owner-insert", "vanilda"]]);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 0);
+});
+
+test("recusa da atualização preserva a atribuição pendente para revisão", async () => {
+  const row = { task_id: "task-26266", competence: "2026-11", responsible_id: "vanilda", responsible_legacy_name: null };
+  const { context, storage, calls, userId } = setup([{ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" }],
+    { ownerUpdate: () => ({ data: null, error: { code: "42501", message: "Permissão negada" } }) });
+  await vm.runInContext("flush()", context);
+  assert.deepEqual(calls, [["owner-update", "vanilda"]]);
+  assert.equal(JSON.parse(storage.get(`fc_queue_${userId}`)).length, 1);
+  assert.equal(storage.get(`fc_recovery_hold_${userId}`), "1");
+});
+
+test("revisão identifica o responsável atual e o pretendido", () => {
+  const row = { task_id: "task-26266", competence: "2026-11", responsible_id: "vanilda", responsible_legacy_name: null };
+  const { context } = setup([{ kind: "upsert", table: "fc_month_owners", row, conflict: "task_id,competence" }]);
+  vm.runInContext(`function pendingDescription${recoveryUiSource}`, context);
+  vm.runInContext("function memberName(id) { return id === 'vanilda' ? 'Vanilda' : id === 'sabrina' ? 'Sabrina' : 'A definir'; } state.tasks = [{ id: 'task-26266', company_id: 'c', account: 'INTEGRAÇÃO COMPRAS 1Q' }]; state.companies = [{ id: 'c', name: 'Cavalca Trading' }]; state.owners = [{ task_id: 'task-26266', competence: '2026-11', responsible_id: 'sabrina' }];", context);
+  const description = vm.runInContext("pendingDescription(state.queue[0])", context);
+  assert.equal(description.action, "Alterar responsável");
+  assert.match(description.target, /Sabrina → Vanilda/);
 });
 
 test("revisão mostra o total e os apontamentos antes de liberar o envio", () => {

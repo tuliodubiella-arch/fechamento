@@ -8,7 +8,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 const uid = () => crypto.randomUUID();
 const departments = ["financeiro", "rh", "estoque", "fiscal", "balancete"];
 const tabNames = ["Painel Geral", "Meu Painel", "Execução", "Rotinas avulsas", "Metas", "Histórico", "Controle de erros", "Sugestões de melhoria", "Cadastros"];
-const APP_VERSION = "2026.11.12.2";
+const APP_VERSION = "2026.11.19.1";
 const errorStatuses = ["Aberto", "Em análise", "Em correção", "Aguardando validação", "Corrigido"];
 const executionStatuses = ["Não iniciado", "Em andamento", "Pausado", "Finalizado"];
 const legacyCutoff = "2026-09";
@@ -161,6 +161,28 @@ async function updateClosingError(id, values) {
     throw new Error("O servidor não confirmou a atualização deste erro. O status anterior foi mantido; tente novamente ou avise o administrador.");
   return data[0];
 }
+async function saveMonthOwner(row) {
+  const values = { responsible_id: row.responsible_id ?? null, responsible_legacy_name: row.responsible_legacy_name ?? null };
+  const matches = (saved) => saved?.task_id === row.task_id && saved?.competence === row.competence
+    && (saved?.responsible_id ?? null) === values.responsible_id
+    && (saved?.responsible_legacy_name ?? null) === values.responsible_legacy_name;
+  const update = () => client.from("fc_month_owners").update(values)
+    .eq("task_id", row.task_id).eq("competence", row.competence).select();
+  // A competência copiada já possui linha: usar UPDATE evita a política de INSERT
+  // que bloqueia recriar tarefas antigas a partir de novembro.
+  let result = await update();
+  if (result.error) return result;
+  if (result.data?.length === 1) return matches(result.data[0]) ? result
+    : { error: new Error("O servidor não confirmou a troca de responsável.") };
+  if (result.data?.length) return { error: new Error("Mais de uma atribuição foi encontrada para esta rotina.") };
+  // Somente uma tarefa nova na competência, ou uma atribuição admitida pela política,
+  // pode criar uma linha ausente. Se outro aparelho a criou agora, atualizar a existente.
+  result = await client.from("fc_month_owners").insert(row).select();
+  if (result.error?.code === "23505") result = await update();
+  if (result.error) return result;
+  return result.data?.length === 1 && matches(result.data[0]) ? result
+    : { error: new Error("O servidor não confirmou a atribuição do responsável.") };
+}
 async function flush() {
   if (!state.online || !state.member || flushing || (state.recoveryHold && !state.recoveryApproved)) return;
   flushing = true;
@@ -171,6 +193,7 @@ async function flush() {
       if (item.kind === "rpc") result = await client.rpc(item.name, item.args);
       else if ((item.kind === "insert" && item.table === "fc_tasks") || isLegacyTaskWrite(item)) result = await insertNewTask(item.row);
       else if (item.kind === "insert" && ["fc_task_comments", "fc_improvement_suggestions", "fc_closing_errors", "fc_general_routines", "fc_general_routine_notes"].includes(item.table)) result = await insertCollaborationRecord(item);
+      else if (item.kind === "upsert" && item.table === "fc_month_owners") result = await saveMonthOwner(item.row);
       else if (item.kind === "upsert") result = await client.from(item.table).upsert(item.row, { onConflict: item.conflict });
       else if (item.kind === "update" && item.table === "fc_closing_errors") {
         const row = await updateClosingError(item.where.id, item.values);
@@ -1077,6 +1100,9 @@ function pendingDescription(item) {
   const task = state.tasks.find((row) => row.id === taskId) || state.queue.find((row) => (row.kind === "insert" || isLegacyTaskWrite(row)) && row.table === "fc_tasks" && row.row?.id === taskId)?.row;
   const companyId = task?.company_id || item.row?.company_id || item.where?.company_id;
   const company = state.companies.find((row) => row.id === companyId) || state.queue.find((row) => row.table === "fc_companies" && row.row?.id === companyId)?.row;
+  const assignment = item.table === "fc_month_owners" && item.row;
+  const currentOwner = assignment && state.owners.find((row) => row.task_id === item.row.task_id && row.competence === item.row.competence);
+  const ownerChange = assignment ? ` · ${memberName(currentOwner?.responsible_id, currentOwner?.responsible_legacy_name)} → ${memberName(item.row.responsible_id, item.row.responsible_legacy_name)}` : "";
   const action = item.kind === "rpc" && item.name === "fc_apply_general_routine"
     ? ({ play: "PLAY", pause: "PAUSE", finish: "FINISH" })[item.args?.p_action] || "Apontamento"
     : item.kind === "rpc" && item.name === "fc_apply_activity"
@@ -1085,11 +1111,12 @@ function pendingDescription(item) {
       : item.table === "fc_general_routine_notes" ? "Anotação de rotina avulsa"
       : item.table === "fc_task_comments" ? "Comentário de atividade"
       : item.table === "fc_improvement_suggestions" ? "Sugestão de melhoria"
+    : assignment ? "Alterar responsável"
     : item.table === "fc_tasks" && (item.kind === "insert" || isLegacyTaskWrite(item)) ? "Inclusão de rotina"
       : item.kind === "update" ? "Alteração de cadastro" : "Cadastro / ajuste";
   const generalId = item.args?.p_routine_id || item.row?.routine_id || (item.table === "fc_general_routines" ? item.row?.id : null);
   const general = state.generalRoutines.find((row) => row.id === generalId);
-  return { action, target: general?.title || item.row?.title || [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro", month: generalId ? "Fora do fechamento" : item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : item.row?.occurred_at ? brasilia(item.row.occurred_at) : "—" };
+  return { action, target: (general?.title || item.row?.title || [task?.account || item.row?.account, company?.name].filter(Boolean).join(" · ") || item.table || item.name || "Registro") + ownerChange, month: generalId ? "Fora do fechamento" : item.args?.p_competence || item.row?.competence || item.where?.competence || "—", time: item.args?.p_occurred_at ? brasilia(item.args.p_occurred_at) : item.row?.occurred_at ? brasilia(item.row.occurred_at) : "—" };
 }
 function renderRecoveryPanel() {
   const records = state.queue.map(pendingDescription);
