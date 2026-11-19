@@ -24,6 +24,7 @@ test('adaptador Supabase: login, RPC, anexos privados e limpeza em conflito',asy
  conflict=true;await assert.rejects(()=>api('items/item-id','PUT',payload),/Conflito/);assert.ok(calls.some(c=>c.method==='DELETE'&&c.url.endsWith('/object/fiscal-prints')));assert.ok(calls.some(c=>c.url.endsWith('fs_discard_attachment')));
  await api('items/item-id','PUT',{action:'delete-activity',id:'activity-id',version:5});const deletion=calls.find(c=>c.url.endsWith('fs_delete_activity'));assert.deepEqual(JSON.parse(deletion.body),{p_id:'item-id',p_activity_id:'activity-id',p_version:5});
  await api('items/item-id','PUT',{action:'delete-item',version:6});const removed=calls.find(c=>c.url.endsWith('fs_delete_item'));assert.deepEqual(JSON.parse(removed.body),{p_id:'item-id',p_version:6});
+ await api('deleted-tasks');await api('restore-task','POST',{id:'item-id',source:'shared',version:7});assert.ok(calls.some(c=>c.url.endsWith('fs_get_deleted_tasks')));assert.deepEqual(JSON.parse(calls.find(c=>c.url.endsWith('fs_restore_task')).body),{p_id:'item-id',p_source:'shared',p_version:7});
  await api('groups','POST',{title:'Grupo',owner:'member',stages:[]});assert.ok(calls.some(c=>c.url.endsWith('fs_create_group')));
  await api('groups/group-id','PUT',{action:'update-group',version:1});assert.ok(calls.some(c=>c.url.endsWith('fs_update_group')&&JSON.parse(c.body).p_id==='group-id'));
  for(const action of ['record-edit','edit-activity','reorder-activities'])await api('items/item-id','PUT',{action,version:8});

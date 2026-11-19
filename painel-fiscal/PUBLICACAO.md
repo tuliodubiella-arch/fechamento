@@ -108,3 +108,9 @@ Na ativação, as rotinas existentes recebem uma linha de base identificada como
 O PDF apresenta dados gerais, etapas, atividades, delegações, acompanhamentos, anexos e alterações. O Excel reúne as mesmas informações e uma aba adicional de versões completas. Textos extensos são distribuídos em linhas de continuação, sem truncamento pelo limite de uma célula. Datas/horas são apresentadas em Brasília. Os anexos são relacionados por seus metadados; arquivos binários não são incorporados e permanecem acessíveis no painel. A geração ocorre no navegador com as bibliotecas já utilizadas nos relatórios de empresas.
 
 `supabase/fiscal_record_reports_test.sql` executa com rollback, sem deixar registros fictícios. Verifica preferência do grupo, etapas, mudança de título, dados anteriores/posteriores, bloqueio de alterações na trilha, desativação da impressão e isolamento entre departamentos.
+# Tarefas excluídas e restauração
+
+Atualização de 19/11/2026: aplicar `supabase/fiscal_deleted_tasks.sql` antes de publicar os arquivos estáticos. O menu Tarefas excluídas lista rotinas/projetos excluídos para administradores do próprio departamento e atividades pessoais exclusivamente para seu dono. A recuperação usa versão e bloqueio da linha e mantém integralmente o JSON, status, anexos e vínculos de recorrência; não gera cópias nem novas ocorrências. A recuperação de tarefas compartilhadas aparece no histórico. Títulos e notas pessoais não são publicados no histórico da equipe.
+
+Não há exclusão definitiva nesta tela. Tarefas vinculadas a grupos também excluídos ficam bloqueadas até a recuperação do grupo. A funcionalidade usa o Supabase da versão oficial. Verificações: `tests/deleted-tasks.mjs`, `tests/cloud-api.mjs` e `supabase/fiscal_deleted_tasks_test.sql` (transacional, com rollback).
+

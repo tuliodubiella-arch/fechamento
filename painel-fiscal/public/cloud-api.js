@@ -35,6 +35,8 @@ if(window.FISCAL_CLOUD){
  if(route==='login'){await auth('token?grant_type=password',{email:body.email,password:body.password});return {};}
  if(route==='logout'){try{await request('/auth/v1/logout','POST',{});}finally{save(null);}return {};}
  if(route==='state'){const context=await rpc('fs_get_context');if(!context?.user?.id)throw Error('Não foi possível identificar seu acesso.');if(!context.department)return {user:context.user,users:[],items:[],events:[],groups:[],personalItems:[],companies:[],suggestions:[],platformContext:context};const [team,personal,registries]=await Promise.all([rpc('fs_get_state'),rpc('fs_get_personal'),rpc('fs_get_registries')]);team.personalItems=personal;team.companies=registries.companies;team.suggestions=registries.suggestions;team.platformContext=context;return signed(team);}
+ if(route==='deleted-tasks')return rpc('fs_get_deleted_tasks');
+ if(route==='restore-task')return rpc('fs_restore_task',{p_id:body.id,p_source:body.source,p_version:body.version});
  if(route==='platform-summary')return rpc('fs_platform_summary');
  if(route.startsWith('record-report/'))return rpc('fs_get_record_report',{p_id:route.slice(14)});
  if(route==='department-setup')return rpc('fs_complete_department',{p_invitation:body.invitationId,p_name:body.name,p_admin_name:body.adminName,p_users:body.users});
